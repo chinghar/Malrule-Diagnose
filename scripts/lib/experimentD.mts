@@ -38,6 +38,7 @@
 
 import { diagnose } from "../../lib/diagnose/diagnose.ts";
 import { CATEGORIES, MODEL_SLIP_RATE, pct } from "./data.mts";
+import { fmtWilsonFromRate } from "./stats.mts";
 import { runSweep, INJECTED_SLIP_RATES, type SweepCell } from "./sweep.mts";
 
 const ORACLE_EPSILON = 0.001; // stand-in for "0% slip" -- diagnose() requires slipRate in (0, 1)
@@ -176,12 +177,12 @@ matters: measured accuracy is *higher* than the floor, because
 fraction of tied trials that arbitrary rule happens to land on the true
 malrule anyway.
 
-| | Value |
+| | Value (95% CI, Wilson, n=${mra.n}) |
 |---|---|
-| Floor (guaranteed correct, any tie-break policy) | **${pct(mra.floor)}** |
-| Expected under fair (uniform-random) tie-break | **${pct(mra.expectedUnderFairTiebreak)}** |
-| Measured (actual, alphabetical tie-break) -- the reported cross-template MRA figure | **${pct(mra.measured)}** |
-| Tied trials | ${mra.tiedTrialCount}/${mra.n} (${pct(mra.tiedTrialCount / mra.n)}) |
+| Floor (guaranteed correct, any tie-break policy) | **${fmtWilsonFromRate(mra.floor, mra.n)}** |
+| Expected under fair (uniform-random) tie-break | **${pct(mra.expectedUnderFairTiebreak)}** (not a simple proportion -- partial credit per tied trial, no single Wilson interval applies) |
+| Measured (actual, alphabetical tie-break) -- the reported cross-template MRA figure | **${fmtWilsonFromRate(mra.measured, mra.n)}** |
+| Tied trials | ${fmtWilsonFromRate(mra.tiedTrialCount / mra.n, mra.n)} |
 
 **${pct(mra.tiedTrialCount / mra.n)} of MRA cross-template trials are genuinely ambiguous** --
 the single piece of evidence given supports two or more malrules equally,

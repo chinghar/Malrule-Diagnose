@@ -18,6 +18,7 @@ import { diagnose, DEFAULT_ABSTENTION_THRESHOLD } from "../../lib/diagnose/diagn
 import { hashString, mulberry32, simulateObservations } from "../../lib/diagnose/testSupport.ts";
 import type { CategoryIndex, MalruleMeta } from "../../lib/diagnose/types.ts";
 import { CATEGORIES, MODEL_SLIP_RATE, pct } from "./data.mts";
+import { fmtWilsonFromRate, fmtCluster } from "./stats.mts";
 
 export const THRESHOLD_GRID = [0, 0.5, 1, 1.5, 2, 3, 5, 8, 12, 20];
 export const SLIP_RATES = [0, 0.05, 0.1, 0.2];
@@ -297,10 +298,21 @@ injected slip rate {0%, 5%, 10%, 20%} x observation count {3, 5, 10}, 30
 trials per (malrule, condition) combination.
 
 **At the engine's shipped default (threshold=${DEFAULT_ABSTENTION_THRESHOLD}, clean data, 5 observations):
-misattribution rate = ${pct(defaultPoint.heldOutMisattributionRate)}** (n=${defaultPoint.n}). More than
+misattribution rate = ${fmtWilsonFromRate(defaultPoint.heldOutMisattributionRate, defaultPoint.n)}**. More than
 one in ${Math.round(1 / defaultPoint.heldOutMisattributionRate)} times a held-out procedure is confidently
 misdiagnosed as some other, wrong, in-library malrule rather than flagged
 as unrecognized.
+
+That trial-level interval treats each of the ${defaultPoint.n} trials as
+independent, which understates the truth: 30 trials sharing the same
+malrule are not independent draws (a malrule with a near-twin
+misattributes on nearly all of its own trials; one with no collisions
+misattributes on almost none). The between-malrule interval, treating each
+of the 26 malrules' own rate as one data point, is wider and more honest:
+**${fmtCluster(breakdown.map((r) => r.misattributionRate), "malrule")}**. Even
+that more conservative lower bound clears zero comfortably, so the claim
+"misattribution is meaningfully non-zero" survives its own conservative
+interval.
 
 ### Tradeoff curve (mean across all 12 tested observation-count x slip-rate conditions)
 
@@ -342,7 +354,7 @@ misattribution is ${pct(recommended.meanHeldOutMisattributionRate)} (vs. ${pct(m
 the shipped default) and mean in-library abstention cost is
 ${pct(recommended.meanInLibraryAbstentionRate)} (vs. ${pct(means.find((m) => m.threshold === 1)!.meanInLibraryAbstentionRate)} at the
 default). At the reference condition alone (clean data, 5 observations):
-held-out misattribution ${pct(recommendedAtDefaultConditions.heldOutMisattributionRate)}, in-library abstention
+held-out misattribution ${fmtWilsonFromRate(recommendedAtDefaultConditions.heldOutMisattributionRate, recommendedAtDefaultConditions.n)}, in-library abstention
 cost ${pct(recommendedAtDefaultConditions.inLibraryAbstentionRate)}. **This is a real cost, not a free
 improvement** -- it is stated explicitly, not hidden: raising the
 threshold trades some in-library coverage for meaningfully less confident
