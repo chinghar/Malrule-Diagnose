@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { diagnose, DEFAULT_SLIP_RATE } from "@/lib/diagnose/diagnose";
+import { diagnose, DEFAULT_SLIP_RATE, DEFAULT_ABSTENTION_THRESHOLD, DEFAULT_SCORING_METHOD, NULL_HYPOTHESIS_ID } from "@/lib/diagnose/diagnose";
 import type { Observation, ProblemInstance } from "@/lib/diagnose/types";
 import { posteriorFromScores, selectNextInstance, uniformPosterior } from "@/lib/select/select";
 import { allCategories } from "@/lib/data/loadIndex";
@@ -29,8 +29,16 @@ export default function DiagnosisApp() {
 
   const currentInstance = category.instances.find((i) => i.instance_id === currentInstanceId);
 
+  // Phase 4: the shipped UI runs with includeNullHypothesis=true (see
+  // EVALUATION.md's null-hypothesis section for the measured benefit/cost
+  // trade this is based on) -- diagnose()'s own default stays false so every
+  // existing evaluate.mts/experiment figure remains reproducible without
+  // this argument.
   const result = useMemo(
-    () => (observations.length > 0 ? diagnose(observations, category.instances, category.malrules, slipRate) : null),
+    () =>
+      observations.length > 0
+        ? diagnose(observations, category.instances, category.malrules, slipRate, DEFAULT_ABSTENTION_THRESHOLD, DEFAULT_SCORING_METHOD, true)
+        : null,
     [observations, category, slipRate]
   );
 
@@ -50,7 +58,15 @@ export default function DiagnosisApp() {
     setAnswerInput("");
 
     const usedIds = new Set(nextObservations.map((o) => o.instanceId));
-    const nextResult = diagnose(nextObservations, category.instances, category.malrules, slipRate);
+    const nextResult = diagnose(
+      nextObservations,
+      category.instances,
+      category.malrules,
+      slipRate,
+      DEFAULT_ABSTENTION_THRESHOLD,
+      DEFAULT_SCORING_METHOD,
+      true
+    );
     const posterior =
       nextResult.ranked.length > 0 ? posteriorFromScores(nextResult.ranked) : uniformPosterior(category.malrules);
     const pool = category.instances.filter((i) => !usedIds.has(i.instance_id));
@@ -60,8 +76,12 @@ export default function DiagnosisApp() {
   }
 
   const leader = result?.ranked[0];
-  const leaderMeta = leader ? category.malrules.find((m) => m.id === leader.malruleId) : undefined;
-  const leaderExample = leader ? observations.find((o) => currentInstanceForObs(category, o.instanceId)?.predictions[leader.malruleId] !== undefined) : undefined;
+  const leaderIsNullHypothesis = leader?.malruleId === NULL_HYPOTHESIS_ID;
+  const leaderMeta = leader && !leaderIsNullHypothesis ? category.malrules.find((m) => m.id === leader.malruleId) : undefined;
+  const leaderExample =
+    leader && !leaderIsNullHypothesis
+      ? observations.find((o) => currentInstanceForObs(category, o.instanceId)?.predictions[leader.malruleId] !== undefined)
+      : undefined;
   const leaderExampleInstance = leaderExample ? currentInstanceForObs(category, leaderExample.instanceId) : undefined;
 
   return (
@@ -198,12 +218,15 @@ export default function DiagnosisApp() {
         {result && result.ranked.length > 0 && (
           <ul className="mt-3 divide-y divide-neutral-200 rounded-lg border border-neutral-200 bg-white">
             {result.ranked.map((r, idx) => {
-              const meta = category.malrules.find((m) => m.id === r.malruleId);
+              const isNull = r.malruleId === NULL_HYPOTHESIS_ID;
+              const meta = isNull ? undefined : category.malrules.find((m) => m.id === r.malruleId);
               return (
                 <li key={r.malruleId} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="w-5 text-sm text-neutral-400">{idx + 1}</span>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-neutral-900">{meta?.name ?? r.malruleId}</div>
+                    <div className="text-sm font-medium text-neutral-900">
+                      {isNull ? "No misconception (correct, with slips)" : (meta?.name ?? r.malruleId)}
+                    </div>
                     <div className="text-xs text-neutral-500">
                       {r.matches}/{r.applicable} observations match
                       {result.tiedTop.includes(r.malruleId) && result.tiedTop.length > 1 ? " · tied for lead" : ""}
@@ -233,7 +256,21 @@ export default function DiagnosisApp() {
         )}
       </section>
 
-      {leader && leaderMeta && !result?.noPatternDetected && (
+      {leader && leaderIsNullHypothesis && !result?.noPatternDetected && (
+        <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+          <h2 className="text-sm font-medium text-emerald-800">
+            No misconception detected{result && result.tiedTop.length > 1 ? " (tied)" : ""}
+          </h2>
+          <p className="mt-2 text-sm text-emerald-800">
+            The answers so far are consistent with the correct procedure, with occasional slips, rather
+            than with any documented malrule in this category. This is a positive finding about the
+            candidate malrules tested &mdash; it does not rule out a misconception this library does not
+            document.
+          </p>
+        </section>
+      )}
+
+      {leader && leaderMeta && !leaderIsNullHypothesis && !result?.noPatternDetected && (
         <section className="rounded-lg border border-neutral-200 bg-neutral-50 p-5">
           <h2 className="text-sm font-medium text-neutral-700">
             Leading malrule{result && result.tiedTop.length > 1 ? " (tied)" : ""}: {leaderMeta.name}

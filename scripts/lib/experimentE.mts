@@ -101,7 +101,7 @@ export const STUDENT_SPECS: StudentSpec[] = [
   { kind: "d_adversarial", label: "(d) adversarial: 2 coincidental matches", adversarialCount: 2 },
 ];
 
-function generateObservations(
+export function generateObservations(
   cat: CategoryIndex,
   spec: StudentSpec,
   obsCount: number,

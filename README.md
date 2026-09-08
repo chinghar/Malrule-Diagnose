@@ -34,110 +34,73 @@ paper is and isn't apples-to-apples.
 
 ## Key takeaway
 
-This project has now been through two rounds of evaluation: the first
-established closed-world accuracy and a structural property of the
-malrule library; the second attacked the cases the first missed, and
-found one that changes what can honestly be claimed about usability.
-**This tool should not be described as usable at its shipped default
-without the qualification below.**
+Three evaluation rounds: closed-world accuracy, then confident
+misdiagnosis of correct students, then this round's exact mechanism,
+fix, and cost.
 
-**Correct students get confidently misdiagnosed, and in one category it's
-close to a coin flip.** `diagnose()` has no "correct answer" hypothesis
-anywhere in its candidate set — only malrules. Feeding it a student who
-answers every problem correctly (or with only minor arithmetic slips, no
-misconception at all) produces a confident, wrong malrule diagnosis 15% of
-the time, pooled across categories — but that pooled number hides the real
-story. Checked separately, it's **~50% in subtraction** and only 3–4%
-elsewhere; the between-category confidence interval's lower bound touches
-zero, meaning "15% overall" is not a stable claim, "roughly 50% in
-subtraction" is. The mechanistic cause is identified, not just observed:
-three specific subtraction malrules simply don't trigger their own bug on
-34–54% of the problems they could be asked, so a correct answer there
-coincidentally *is* what they predict. This was first seen manually, not
-statistically — three correct answers to real subtraction problems
-produced an 85%-confident wrong diagnosis during this project's own UI
-testing, before any of the systematic measurement in
-[EVALUATION.md §2](EVALUATION.md) existed.
+**Correct students were confidently misdiagnosed — ~50% of the time in
+subtraction — entirely from coincidence: certain malrules' predicted
+wrong answer happens to equal the correct answer on some problems, and
+`diagnose()` cannot tell that apart from a real match. Excluding exactly
+those coincidences drops the false-positive rate from 15.4%/50.5%
+(pooled/subtraction) to 0.0% in both — a complete, confirmed explanation,
+not a partial one.** The shipped UI now includes a "no misconception,
+just slips" candidate that fixes this live (15.4%→0.6% pooled,
+50.5%→0.0% subtraction) — **not for free**: it costs a small, measured
+amount of sensitivity on genuine malrule students (91.4%→91.2% overall,
+93.0%→91.5% on the three malrules most prone to this coincidence), and it
+opens a new failure mode: a genuinely novel misconception can now be told
+"no misconception" instead of flagged unrecognized (~5% of held-out
+trials at 5 observations, 0% before). One disclosed caveat: the tie-break
+for close calls favors the fix in subtraction but not the other three
+categories, an artifact of alphabetical order, not a chosen advantage.
 
-**Adaptive problem selection compounds this rather than fixing it.** It
-does not misdiagnose out-of-library students *more often* than asking
-random questions — but when it is wrong, it is far more confident: 96–99%
-posterior versus random selection's 79–85%, and the gap widens with more
-questions asked. The feature that makes correct diagnoses converge faster
-makes incorrect ones look more certain, with no way for the UI to tell the
-two apart.
+**This coincidence does not meaningfully inflate anything else measured
+here.** MRA (92.8%) is mechanically guaranteed unaffected; top-1/top-3
+accuracy, calibration, and adaptive-selection convergence all move less
+than sampling noise once it's excluded. It does modestly inflate
+leave-one-out misattribution (28.1%→26.0%, ~7% relative) — real, far
+smaller than its effect on false positives.
 
-**The displayed confidence number is least reliable on exactly the calls
-where a user would lean on it.** Restricted to trials where the top two
-malrules are close — the ones most likely to be shown as ambiguous — a
-reported "~53% confident" call is actually correct only about 11% of the
-time. The UI displays the raw posterior with no calibration adjustment
-anywhere in the pipeline.
+**Adaptive selection compounds wrongness, not fixes it** (far more
+confident when wrong: 96–99% posterior vs. random's 79–85%, no UI signal
+to tell them apart), and **shown confidence is least reliable on close
+calls** ("~53% confident" close top-two calls are correct ~11% of the
+time; the UI shows the raw, uncalibrated posterior).
 
-**The previously-reported 28% misattribution rate on genuinely novel
-procedures has no established direction of bias**, and should not be
-reported as a single corrected number. Testing synthetic bugs harder than
-a held-out library malrule found the two plausible "novel bug" shapes move
-in *opposite* directions: a child blending two known misconceptions is
-misattributed *more* often (up to 38%); a child with a known bug plus one
-extra unrelated slip is misattributed *far less* often (under 2%). Which
-better describes a given real child can't be determined from this
-evidence — 28% is a real number for held-out library malrules
-specifically, not a general-purpose estimate for "novel bugs."
+**The 28% misattribution rate on novel procedures has no established
+bias direction** — blended misconceptions misattribute more (up to 38%),
+a known bug plus one slip far less (under 2%); 28% is specific to
+held-out library malrules, not novel bugs generally.
 
-**None of this is an artifact of the scoring function.** Re-running both
-headline findings above under three alternative scorers (naive exact-match
-count, full binomial likelihood, a non-uniform prevalence prior — added
-behind a parameter specifically to test this) never produced a *better*
-result than the current scorer; every alternative was equal to or worse.
-That supports reading these numbers as a property of matching-based
-diagnosis over a collision-prone hypothesis space, not a fixable
-implementation quirk — it strengthens, rather than narrows, the
-generalization claim below.
+**None of this is a scoring-function artifact** — three alternative
+scorers never beat the current one, so the finding **survives an attempt
+to attribute it to the scorer**; that alone doesn't establish
+generalization beyond four scorers, one library, 26 malrules.
 
-**The first round's structural finding still stands, and still matters** —
-just no longer as the single most urgent thing to know. Checking all 325
-possible malrule pairs against the entire committed index, exactly **one
-pair is fully indistinguishable**: `decimals.ignore_decimal_point` and
-`decimals.whole_number_thinking`. No problem in this library, however
-chosen, can ever tell them apart. 18 more pairs collide on *some*
-templates but are fixable by choosing a different problem shape — each
-with a concrete discriminating example in
-[EVALUATION.md](EVALUATION.md) and the machine-readable
-`data/indistinguishability.json`.
+**The first round's structural finding still stands:** one malrule pair
+is fully indistinguishable (`decimals.ignore_decimal_point` /
+`decimals.whole_number_thinking`); 18 more collide on some templates but
+are fixable by problem choice — [EVALUATION.md](EVALUATION.md).
 
-**On the paper comparison:** this project also measured the paper's own
-task (Malrule Reasoning Accuracy) and got **92.8% cross-template**, against
-the paper's reported LLM baseline of 40.5%/46.5%. **That comparison is not
-apples to apples, and the number should not be read as this engine
-outperforming the LLM baseline.** The paper's task is open-world — an LLM
-must infer an *unseen* procedure and correctly re-execute it, with no
-guarantee the student is even running a systematic procedure at all. This
-engine selects from a pre-enumerated candidate set (5–8 malrules per
-category) that contains the true answer by construction in every
-measurement except the ones described above. The 92.8% figure is humbling
-on closer inspection too: roughly a fifth of those trials are genuinely
-tied between two equally-supported malrules, and part of the reported
-number depends on an arbitrary alphabetical tie-break convention rather
-than additional evidence — see EVALUATION.md's ceiling analysis, and §11
-for the full non-comparability statement.
+**On the paper comparison:** 92.8% cross-template MRA vs. the paper's
+40.5%/46.5% LLM baseline is **not apples to apples** — the paper infers
+an unseen procedure open-world; this engine picks from a pre-enumerated
+set containing the true answer by construction almost everywhere (§11).
 
-The part that does generalize beyond this project — precondition intact,
-and sharpened by this round: when the hypothesis space is a library of
-*executable procedures* and the true procedure is known to be a member of
-that library, "which procedure produced this output" is a matching
-problem, not a reasoning problem. That precondition is load-bearing.
-Outside it, matching has no mechanism for representing "none of the above"
-except an explicit abstention rule — and this round found that rule
-unreliable specifically for the case that will be the *most common* input
-to a real deployment: a student who is doing nothing wrong.
+What generalizes: given known executable procedures, "which one produced
+this" is matching, not reasoning. Outside that, matching needs an
+explicit "none of the above" rule — this round found it unreliable for
+the most common real input (a correct student), traced why, fixed it,
+and measured the cost.
 
 This project is best read as an engineering artifact plus an honest audit
 of its own limits, not a benchmark result: a deterministic inverse solver
 over an open, executable misconception library, with adaptive next-problem
 selection and a working interface, which does not appear to exist
-elsewhere — evaluated, in this second round, specifically for the ways it
-could mislead the people using it.
+elsewhere — evaluated, across three rounds, specifically for the ways it
+could mislead the people using it, with the most serious way found so far
+now measurably fixed, at a measured cost.
 
 ## Prior art
 
@@ -180,12 +143,16 @@ bug library.
   observations so far, and reports "no systematic pattern detected" rather
   than forcing a match when nothing explains the answers better than
   chance.
-- **That abstention mechanism is not reliable enough yet to call this tool
-  safe for correct students, particularly in subtraction** (~50%
-  false-positive rate there at the shipped default — see Key takeaway and
-  [EVALUATION.md §2](EVALUATION.md)). This is stated here plainly, not just
-  in the evaluation report, because it directly bears on whether to trust
-  a diagnosis this tool gives you.
+- **Abstention alone was not reliable enough to call this tool safe for
+  correct students, particularly in subtraction** (~50% false-positive
+  rate there — see Key takeaway). The shipped UI now also scores a "no
+  misconception, just slips" candidate (`includeNullHypothesis`,
+  [EVALUATION.md §2](EVALUATION.md)) alongside every malrule, which fixes
+  most of this — but not all of it, and not for free: it costs measured
+  sensitivity on genuine malrule students and opens a new way for a
+  genuinely novel misconception to be told "no misconception." Read the
+  Key takeaway and EVALUATION.md before trusting a diagnosis from either
+  mechanism alone.
 - The displayed posterior percentage is not currently calibrated,
   especially on close top-two calls (EVALUATION.md §6) — read it as a
   ranking signal, not a literal probability of correctness.
@@ -213,7 +180,12 @@ lib/diagnose/             Pure TypeScript, no I/O. Given observed
                           prior) are available behind a parameter that
                           defaults to the original scorer, added to test
                           whether findings are scorer-specific (they
-                          are not — see EVALUATION.md §4).
+                          are not — see EVALUATION.md §4). A "correct
+                          student, wrong answers are slips" candidate is
+                          available behind `includeNullHypothesis`
+                          (default false in the library; the shipped UI
+                          turns it on — see EVALUATION.md §2 for the
+                          measured benefit and cost).
 
 lib/select/                Pure TypeScript, no I/O. Given the current
                           posterior, scores candidate next problems by

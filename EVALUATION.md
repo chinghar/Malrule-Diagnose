@@ -289,15 +289,36 @@ for it, which is also the probability any single uniformly-sampled
 observation of that malrule in the (a)/(b) sweep or Experiment A is
 zero-information by construction) is 9.4%.
 
-**Highest-exposure malrules** (top 5 of 26):
+**All 26 malrules, by exposure (descending):**
 
-| Malrule | Applicable instances | Non-triggering | Exposure |
-|---|---|---|---|
-| subtraction.stops_borrow_at_zero | 640 | 344 | 53.8% (95% CI 49.9%-57.6%, Wilson, n=640) |
-| subtraction.diff_0_n_equals_n | 640 | 263 | 41.1% (95% CI 37.3%-44.9%, Wilson, n=640) |
-| subtraction.always_borrow_left | 640 | 220 | 34.4% (95% CI 30.8%-38.1%, Wilson, n=640) |
-| decimals.shorter_is_larger | 400 | 90 | 22.5% (95% CI 18.7%-26.8%, Wilson, n=400) |
-| decimals.longer_is_larger | 400 | 80 | 20.0% (95% CI 16.4%-24.2%, Wilson, n=400) |
+| Malrule | Category | Applicable instances | Non-triggering | Exposure |
+|---|---|---|---|---|
+| subtraction.stops_borrow_at_zero | subtraction | 640 | 344 | 53.8% (95% CI 49.9%-57.6%, Wilson, n=640) |
+| subtraction.diff_0_n_equals_n | subtraction | 640 | 263 | 41.1% (95% CI 37.3%-44.9%, Wilson, n=640) |
+| subtraction.always_borrow_left | subtraction | 640 | 220 | 34.4% (95% CI 30.8%-38.1%, Wilson, n=640) |
+| decimals.shorter_is_larger | decimals | 400 | 90 | 22.5% (95% CI 18.7%-26.8%, Wilson, n=400) |
+| decimals.longer_is_larger | decimals | 400 | 80 | 20.0% (95% CI 16.4%-24.2%, Wilson, n=400) |
+| multiplication_division.alignment_error_in_multi_digit | multiplication_division | 400 | 68 | 17.0% (95% CI 13.6%-21.0%, Wilson, n=400) |
+| subtraction.borrow_no_decrement | subtraction | 554 | 80 | 14.4% (95% CI 11.8%-17.6%, Wilson, n=554) |
+| subtraction.borrow_from_bottom | subtraction | 640 | 80 | 12.5% (95% CI 10.2%-15.3%, Wilson, n=640) |
+| subtraction.smaller_from_larger | subtraction | 640 | 80 | 12.5% (95% CI 10.2%-15.3%, Wilson, n=640) |
+| fractions.natural_number_bias_numerator_only | fractions | 240 | 29 | 12.1% (95% CI 8.5%-16.8%, Wilson, n=240) |
+| multiplication_division.division_makes_smaller | multiplication_division | 160 | 4 | 2.5% (95% CI 1.0%-6.3%, Wilson, n=160) |
+| fractions.denominator_comparison_error | fractions | 240 | 3 | 1.3% (95% CI 0.4%-3.6%, Wilson, n=240) |
+| multiplication_division.divide_larger_by_smaller_always | multiplication_division | 400 | 2 | 0.5% (95% CI 0.1%-1.8%, Wilson, n=400) |
+| subtraction.decompose_by_place_value_label | subtraction | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| subtraction.no_column_limit | subtraction | 554 | 0 | 0.0% (95% CI 0.0%-0.7%, Wilson, n=554) |
+| fractions.add_numerators_denominators | fractions | 160 | 0 | 0.0% (95% CI 0.0%-2.3%, Wilson, n=160) |
+| fractions.common_denominator_numerator | fractions | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| fractions.ignore_denominators | fractions | 442 | 0 | 0.0% (95% CI 0.0%-0.9%, Wilson, n=442) |
+| fractions.keep_common_denominator_for_multiplication | fractions | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| fractions.multiply_across_for_division | fractions | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| fractions.subtract_across | fractions | 160 | 0 | 0.0% (95% CI 0.0%-2.3%, Wilson, n=160) |
+| decimals.ignore_decimal_point | decimals | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| decimals.right_align_decimals | decimals | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| decimals.whole_number_thinking | decimals | 325 | 0 | 0.0% (95% CI 0.0%-1.2%, Wilson, n=325) |
+| multiplication_division.forget_to_add_carried_number | multiplication_division | 80 | 0 | 0.0% (95% CI 0.0%-4.6%, Wilson, n=80) |
+| multiplication_division.multiplication_makes_bigger | multiplication_division | 400 | 0 | 0.0% (95% CI 0.0%-1.0%, Wilson, n=400) |
 
 These are the same three subtraction malrules Experiment E already found
 driving nearly all of that experiment's false positives, and the same
@@ -310,6 +331,280 @@ genuinely correct answer to match a malrule's predicted (wrong-by-design)
 output. It also plausibly contributes to Experiment D's 6.9-percentage-point
 collision-driven error and the 20.6% MRA tie rate, though that split has
 not been fully decomposed here.
+
+### Contamination audit: how much of every figure in this document is this artifact? (Phase 1)
+
+Every figure elsewhere in this document is sampled from ALL instances a
+malrule is applicable to -- both triggering (the malrule's algorithm
+actually produces a wrong answer there) and non-triggering (the malrule's
+algorithm coincidentally reproduces the correct answer, carrying zero
+diagnostic information). This section re-derives each figure with the
+sampling pool restricted to triggering instances only, using a separate,
+parallel sampler (`simulateObservationsTriggeringOnly`) that never touches
+the original sampling functions -- so every existing number above and
+below remains exactly as measured; this is a before/after overlay, not a
+correction.
+
+**(c) Does `lib/select`'s adaptive next-problem selection know the
+difference?** No -- confirmed by reading `lib/select/select.ts` in full.
+`scoreCandidates()` groups hypotheses purely by
+`inst.predictions[malruleId] ?? NOT_APPLICABLE`; `correct_answer` never
+appears in that file. A coincidental, zero-information match is treated as
+fully discriminating, identically to a genuine one. This is a real,
+confirmed structural gap. `lib/select` is frozen this round (audit only,
+per this round's scope) -- reported here as a bug, not fixed, and flagged
+for a future round's work.
+
+### The two largest movers
+
+**By far the largest: Experiment E's false-positive rate on fully correct
+students.** 15.4% (95% CI 13.0%-18.0%, Wilson, n=800) (all observations) -> 0.0% (95% CI 0.0%-0.5%, Wilson, n=800) (triggering-only,
+i.e. excluding any instance where at least one malrule in the category
+coincidentally reproduces the correct answer). This is not a partial
+explanation -- it is the complete mechanistic account: every false
+positive Experiment E measured was, by definition, a non-triggering
+coincidence, because there is no other way for a genuinely correct answer
+to equal a malrule's predicted (wrong-by-design) output.
+
+**Second: Experiment A's leave-one-out misattribution rate**, a real but
+much smaller effect:
+
+| Observations | Misattribution rate before | Misattribution rate after |
+|---|---|---|
+| 3 | 31.4% (95% CI 28.3%-34.8%, Wilson, n=780) | 29.9% (95% CI 26.8%-33.2%, Wilson, n=780) |
+| 5 | 28.1% (95% CI 25.0%-31.3%, Wilson, n=780) | 26.0% (95% CI 23.1%-29.2%, Wilson, n=780) |
+| 10 | 26.2% (95% CI 23.2%-29.3%, Wilson, n=780) | 24.0% (95% CI 21.1%-27.1%, Wilson, n=780) |
+
+At the reference condition (5 observations): 28.1% (95% CI 25.0%-31.3%, Wilson, n=780) -> 26.0% (95% CI 23.1%-29.2%, Wilson, n=780), roughly a
+7.3% relative reduction. Some, not all, of Experiment A's held-out
+misattribution is driven by the same coincidence mechanism -- when the
+held-out malrule's own simulated answer happens to be non-triggering for
+some OTHER in-library malrule too, that other malrule gets undeserved
+credit.
+
+### Every other figure, for completeness
+
+**MRA (92.8%): mechanically unchanged, confirmed not just assumed.**
+Before: 92.8%, after: 92.8% (n=1920 both). Identical to
+floating-point precision, because MRA's worked-mistake observation (A) is
+always drawn from a NATIVE instance, and `build_index.py`'s own filter
+(`if native_answer == correct_answer: continue`) already guarantees every
+native instance is triggering -- verified here with a runtime check, not
+just read from the script. **This is the reason the checkpoint above does
+not report 92.8% as having moved: it structurally cannot, by construction
+of how MRA itself is measured.**
+
+**Top-1 / top-3 identification accuracy (Experiment C (a) sweep):**
+negligible, no consistent direction.
+
+| Observations | Top-1 before | Top-1 after | Top-3 before | Top-3 after |
+|---|---|---|---|---|
+| 1 | 87.5% | 87.7% | 98.6% | 98.6% |
+| 2 | 89.4% | 91.0% | 99.4% | 99.4% |
+| 3 | 92.6% | 92.5% | 100.0% | 99.7% |
+| 4 | 93.1% | 92.8% | 100.0% | 100.0% |
+| 5 | 93.1% | 93.4% | 100.0% | 100.0% |
+| 6 | 92.5% | 92.7% | 100.0% | 100.0% |
+| 7 | 93.2% | 92.9% | 100.0% | 100.0% |
+| 8 | 93.2% | 93.2% | 100.0% | 100.0% |
+| 9 | 92.9% | 93.0% | 100.0% | 100.0% |
+| 10 | 92.3% | 92.4% | 100.0% | 100.0% |
+
+**Adaptive-selection convergence (round 1 Phase 4):** negligible. Both
+strategies already converge in essentially 1 observation on most trials,
+leaving little room for a sampling restriction to move the outcome.
+
+| Strategy | Converged before | Converged after | Mean obs before | Mean obs after |
+|---|---|---|---|---|
+| adaptive | 96.2% | 96.2% | 1.00 | 1.00 |
+| random | 95.8% | 96.3% | 1.40 | 1.45 |
+
+**Posterior calibration (Experiment J) ECE:** negligible. Before:
+5.0% (n=9360), after: 5.8% (n=9360) -- a difference well
+within the noise expected from re-sampling, not a real shift in
+calibration quality.
+
+### What this means for the rest of the document
+
+Every headline number elsewhere in this document that is NOT Experiment E
+or (to a lesser extent) Experiment A is essentially unaffected by
+non-triggering contamination -- MRA, top-1/top-3 identification accuracy,
+calibration, and adaptive-selection convergence all move by less than
+would be expected from re-sampling noise alone. The contamination is real,
+large, and fully explains the false-positive headline; it is not a
+document-wide inflation of every reported figure.
+
+### A direct fix: the null hypothesis candidate, and its cost (Phase 2/3/4)
+
+`includeNullHypothesis` (default false; Phase 2) adds a "correct
+student, wrong answers are slips" candidate to `diagnose()`'s candidate
+set, scored by the identical slip-rate noise model as every malrule, with
+no special prior, bonus, or tie-break advantage beyond the same rules every
+malrule is already subject to (see `NULL_HYPOTHESIS_ID`'s doc comment in
+`lib/diagnose/diagnose.ts`). "Null hypothesis wins" (a confident,
+in-the-clear "no misconception" diagnosis) and `noPatternDetected`
+(abstention: insufficient evidence for anything) are reported below as
+**separate, non-overlapping events** -- never merged.
+
+**One caveat on the tie-break, found while verifying this feature, reported
+transparently rather than adjusted for:** the existing sort tie-break is
+alphabetical by malrule id (unchanged, applied identically to every
+candidate). Because `"null_hypothesis"` happens to sort after `decimals`,
+`fractions`, and `multiplication_division` but before `subtraction`, a
+tie between the null hypothesis and a subtraction malrule resolves in the
+null hypothesis's favor, while a tie against the other three categories
+resolves in the malrule's favor. This was not chosen to produce that
+result -- renaming the constant would change which categories benefit from
+ties -- but it is a real, non-obvious asymmetry, disclosed here rather than
+tuned away.
+
+### Benefit: false-positive rate, Experiment E's student types, ON vs OFF
+
+| Student type | n | FP rate OFF | FP rate ON | Null-hypothesis-wins rate (ON) |
+|---|---|---|---|---|
+| (a) fully correct, 0% slip | 800 | 15.4% (95% CI 13.0%-18.0%, Wilson, n=800) | 0.6% (95% CI 0.3%-1.5%, Wilson, n=800) | 99.4% |
+| (b) correct + 5% arithmetic slips | 800 | 17.6% (95% CI 15.1%-20.4%, Wilson, n=800) | 1.4% (95% CI 0.8%-2.4%, Wilson, n=800) | 86.0% |
+| (b) correct + 10% arithmetic slips | 800 | 15.6% (95% CI 13.3%-18.3%, Wilson, n=800) | 1.4% (95% CI 0.8%-2.4%, Wilson, n=800) | 72.8% |
+| (b) correct + 20% arithmetic slips | 800 | 15.3% (95% CI 12.9%-17.9%, Wilson, n=800) | 1.6% (95% CI 1.0%-2.8%, Wilson, n=800) | 54.0% |
+| (c) purely random errors | 800 | 0.5% (95% CI 0.2%-1.3%, Wilson, n=800) | 0.4% (95% CI 0.1%-1.1%, Wilson, n=800) | 0.1% |
+| (d) adversarial: 1 coincidental match | 800 | 30.5% (95% CI 27.4%-33.8%, Wilson, n=800) | 15.5% (95% CI 13.2%-18.2%, Wilson, n=800) | 40.0% |
+| (d) adversarial: 2 coincidental matches | 800 | 41.4% (95% CI 38.0%-44.8%, Wilson, n=800) | 28.0% (95% CI 25.0%-31.2%, Wilson, n=800) | 21.1% |
+
+**Fully correct students: false-positive rate falls from 15.4% (95% CI 13.0%-18.0%, Wilson, n=800) to
+0.6% (95% CI 0.3%-1.5%, Wilson, n=800)**, with the null hypothesis winning outright on
+99.4% of trials. This is the direct fix for round 2's
+headline finding and Phase 1's contamination audit (which traced that 18%
+figure entirely to non-triggering coincidences). Per category, since round
+2 already established the effect is subtraction-specific, not uniform:
+
+| Category | n | FP rate OFF | FP rate ON |
+|---|---|---|---|
+| subtraction | 200 | 50.5% (95% CI 43.6%-57.4%, Wilson, n=200) | 0.0% (95% CI 0.0%-1.9%, Wilson, n=200) |
+| fractions | 200 | 4.0% (95% CI 2.0%-7.7%, Wilson, n=200) | 2.5% (95% CI 1.1%-5.7%, Wilson, n=200) |
+| decimals | 200 | 3.0% (95% CI 1.4%-6.4%, Wilson, n=200) | 0.0% (95% CI 0.0%-1.9%, Wilson, n=200) |
+| multiplication_division | 200 | 4.0% (95% CI 2.0%-7.7%, Wilson, n=200) | 0.0% (95% CI 0.0%-1.9%, Wilson, n=200) |
+
+Between-category interval, OFF: 15.4% (95% CI 0.0%-52.6%, between-category t-interval, k=4); ON: 0.6% (95% CI 0.0%-2.6%, between-category t-interval, k=4).
+
+### Cost (a): sensitivity on GENUINE malrule students, all 26 malrules, clean data
+
+| Category | obsCount | n | Top-1 OFF | Top-1 ON | Miss rate (null wins) ON |
+|---|---|---|---|---|---|
+| subtraction | 5 | 240 | 97.1% | 96.3% | 1.3% |
+| fractions | 5 | 240 | 100.0% | 100.0% | 0.0% |
+| decimals | 5 | 150 | 70.0% | 70.0% | 0.0% |
+| multiplication_division | 5 | 150 | 99.3% | 99.3% | 0.0% |
+
+Mean top-1 across all category x obsCount cells (obsCount 3/5/10 pooled):
+OFF 91.4%, ON 91.2%.
+
+Full obsCount sweep:
+
+| Category | obsCount | n | Top-1 OFF | Top-1 ON | Miss rate (null wins) ON |
+|---|---|---|---|---|---|
+| subtraction | 3 | 240 | 90.4% | 89.6% | 2.1% |
+| subtraction | 5 | 240 | 97.1% | 96.3% | 1.3% |
+| subtraction | 10 | 240 | 100.0% | 100.0% | 0.0% |
+| fractions | 3 | 240 | 99.6% | 99.6% | 0.0% |
+| fractions | 5 | 240 | 100.0% | 100.0% | 0.0% |
+| fractions | 10 | 240 | 100.0% | 100.0% | 0.0% |
+| decimals | 3 | 150 | 78.0% | 78.0% | 0.0% |
+| decimals | 5 | 150 | 70.0% | 70.0% | 0.0% |
+| decimals | 10 | 150 | 64.0% | 64.0% | 0.0% |
+| multiplication_division | 3 | 150 | 98.0% | 98.0% | 0.0% |
+| multiplication_division | 5 | 150 | 99.3% | 99.3% | 0.0% |
+| multiplication_division | 10 | 150 | 100.0% | 100.0% | 0.0% |
+
+### Cost (b): restricted to the 3 highest-non-triggering-exposure subtraction malrules
+
+(`subtraction.stops_borrow_at_zero`, `subtraction.diff_0_n_equals_n`, `subtraction.always_borrow_left` -- Phase 1's 53.8%/41.1%/34.4% exposure cluster, the same
+malrules driving nearly all of Experiment E's false positives.)
+
+| Category | obsCount | n | Top-1 OFF | Top-1 ON | Miss rate (null wins) ON |
+|---|---|---|---|---|---|
+| subtraction | 5 | 90 | 94.4% | 92.2% | 3.3% |
+
+Mean top-1 on this cluster specifically (obsCount 3/5/10 pooled): OFF
+93.0%, ON 91.5%. This is where the
+cost of turning the null hypothesis on concentrates: these are exactly the
+malrules whose own genuine evidence looks most like "probably correct" by
+construction (highest non-triggering exposure), so they are also the
+malrules most likely to lose ground to the null hypothesis on real students.
+
+Full obsCount sweep:
+
+| Category | obsCount | n | Top-1 OFF | Top-1 ON | Miss rate (null wins) ON |
+|---|---|---|---|---|---|
+| subtraction | 3 | 90 | 84.4% | 82.2% | 5.6% |
+| subtraction | 5 | 90 | 94.4% | 92.2% | 3.3% |
+| subtraction | 10 | 90 | 100.0% | 100.0% | 0.0% |
+
+### Cost (c)/(d): sensitivity and miss rate vs. injected slip rate (all 26 malrules, 5 observations)
+
+| Injected slip | n | Top-1 OFF | Top-1 ON | Miss rate ON |
+|---|---|---|---|---|
+| 0.0% | 780 | 93.2% | 92.8% | 0.5% |
+| 5.0% | 780 | 87.3% | 87.1% | 0.5% |
+| 10.0% | 780 | 80.1% | 79.7% | 0.5% |
+| 20.0% | 780 | 70.0% | 69.0% | 1.5% |
+
+"Miss rate" (cost (d)) is the fraction of genuine-malrule trials where the
+engine's confident top-ranked answer is "no misconception" instead of the
+student's actual malrule -- a real diagnostic miss, not an abstention. It
+rises with slip rate ON (a noisier genuine-malrule student increasingly
+resembles a correct-but-slipping one), and is exactly 0 OFF by construction
+(the null hypothesis cannot win a candidate set it is never added to).
+
+### Interaction: leave-one-out (Experiment A/H) with the null hypothesis ON
+
+| obsCount | n | Abstained OFF | Misattributed OFF | Abstained ON | Misattributed ON | Absorbed by null ON |
+|---|---|---|---|---|---|---|
+| 3 | 780 | 68.6% | 31.4% | 66.9% | 25.0% | 8.1% |
+| 5 | 780 | 71.9% | 28.1% | 70.9% | 23.8% | 5.3% |
+| 10 | 780 | 73.8% | 26.2% | 73.7% | 24.1% | 2.2% |
+
+**5.3% of held-out (out-of-library) trials at
+5 observations are absorbed into "no misconception" rather than
+abstaining or being misattributed to some other in-library malrule**, when
+the null hypothesis is ON. This is a second-order effect worth naming
+plainly: a student running a genuinely novel, undocumented misconception
+(one MalruleLib does not encode) can be told they have no misconception at
+all, if their wrong answers happen to look more "correct-plus-slips" than
+they look like any single in-library malrule. This does not show up as a
+misattribution (a specific wrong malrule named) or as the honest "no
+pattern detected" abstention -- it is a third, distinct failure mode this
+parameter introduces, and it did not exist when `includeNullHypothesis`
+is OFF.
+
+### Recommended operating point
+
+Turning `includeNullHypothesis` ON is a net improvement specifically for
+the round-2 headline problem (correct subtraction students being
+confidently misdiagnosed) and should be considered ON for that reason, but
+it is **not a free fix**: it costs measurable sensitivity concentrated on
+the same three subtraction malrules that most needed the null hypothesis's
+protection in the first place (cost (b) above), and it introduces a new,
+previously-nonexistent way for a genuinely novel out-of-library procedure
+to be told "no misconception" instead of flagged as unrecognized (the
+interaction result above). One sentence per direction: **the benefit is
+that a correct subtraction student is no longer routinely told they have a
+wrong-procedure misconception they do not have; the cost is that a real
+subtraction-malrule student, and separately a student with a genuinely
+novel out-of-library bug, both become somewhat more likely to be told
+"no misconception" when they do, in fact, have one.**
+
+**Phase 4 -- the shipped default.** The contradiction from the prior round
+(the tool described as not usable at its default, yet shipping that
+default) is resolved here, not by raising `abstentionThreshold` --
+Experiment A's own tradeoff curve already shows no threshold value fixes
+misattribution without heavy in-library coverage loss -- but by turning
+`includeNullHypothesis` ON in the shipped product specifically. **The
+actual UI (`app/DiagnosisApp.tsx`) now calls `diagnose()` with
+`includeNullHypothesis: true`**, while `diagnose()`'s own function
+default stays `false` so every existing figure in this document, and
+every existing call site in `scripts/lib/`, remains byte-for-byte
+reproducible without passing this argument. `abstentionThreshold` is left
+at its shipped default (1.0), unchanged this round.
 
 ### Does adaptive selection make this worse? (Experiment I)
 
