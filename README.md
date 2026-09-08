@@ -44,15 +44,22 @@ wrong answer happens to equal the correct answer on some problems, and
 `diagnose()` cannot tell that apart from a real match. Excluding exactly
 those coincidences drops the false-positive rate from 15.4%/50.5%
 (pooled/subtraction) to 0.0% in both — a complete, confirmed explanation,
-not a partial one.** The shipped UI now includes a "no misconception,
-just slips" candidate that fixes this live (15.4%→0.6% pooled,
-50.5%→0.0% subtraction) — **not for free**: it costs a small, measured
-amount of sensitivity on genuine malrule students (91.4%→91.2% overall,
-93.0%→91.5% on the three malrules most prone to this coincidence), and it
-opens a new failure mode: a genuinely novel misconception can now be told
-"no misconception" instead of flagged unrecognized (~5% of held-out
-trials at 5 observations, 0% before). One disclosed caveat: the tie-break
-for close calls favors the fix in subtraction but not the other three
+not a partial one.**
+
+**The fix comes with a real, measured cost.** The shipped UI now includes
+a "no misconception, just slips" candidate that fixes this live
+(15.4%→0.6% pooled, 50.5%→0.0% subtraction) — **not for free**: it costs
+a small, measured amount of sensitivity on genuine malrule students
+(91.4%→91.2% overall, 93.0%→91.5% on the three malrules most prone to
+this coincidence), and it opens a new failure mode: a genuinely novel
+misconception can now be told "no misconception" instead of flagged
+unrecognized (~5% of held-out trials at 5 observations, 0% before). In
+plain terms: a child with a real but unusual misconception can now be
+told they're fine when they aren't — a false negative on exactly the
+population this tool exists to serve, though a rarer one (~5%) than the
+false positive it replaced (up to ~50%), and a trade made deliberately,
+not one that went unnoticed. One disclosed caveat: the tie-break for
+close calls favors the fix in subtraction but not the other three
 categories, an artifact of alphabetical order, not a chosen advantage.
 
 **This coincidence does not meaningfully inflate anything else measured
@@ -64,9 +71,20 @@ smaller than its effect on false positives.
 
 **Adaptive selection compounds wrongness, not fixes it** (far more
 confident when wrong: 96–99% posterior vs. random's 79–85%, no UI signal
-to tell them apart), and **shown confidence is least reliable on close
-calls** ("~53% confident" close top-two calls are correct ~11% of the
-time; the UI shows the raw, uncalibrated posterior).
+to tell them apart). Round four found part of why: `lib/select` groups a
+malrule's predicted answer by raw value only, never checking it against
+the correct answer, so a coincidentally-correct ("non-triggering")
+prediction counts exactly like a genuine one — measured at 22.2% of
+adaptive selections in that same experiment, and trials with at least one
+such coincidence went on to misattribute 100% of the time (60/60) vs.
+26.1% without (120/460). That's a strong association, not an isolated
+proven cause — collision-prone malrules may drive both independently —
+and `lib/select` is left unmodified, measured not fixed, pending further
+work.
+
+**Shown confidence is least reliable on close calls** ("~53% confident"
+close top-two calls are correct ~11% of the time; the UI shows the raw,
+uncalibrated posterior).
 
 **The 28% misattribution rate on novel procedures has no established
 bias direction** — blended misconceptions misattribute more (up to 38%),
@@ -153,6 +171,13 @@ bug library.
   genuinely novel misconception to be told "no misconception." Read the
   Key takeaway and EVALUATION.md before trusting a diagnosis from either
   mechanism alone.
+- **The library itself still defaults `includeNullHypothesis` to `false`**
+  so every figure measured before this candidate existed stays exactly
+  reproducible from the library's own default, with no argument needed.
+  That default is for reproducibility, not a recommendation: anyone
+  importing `lib/diagnose` directly for actual diagnosis, not evaluation,
+  should pass `true` unless deliberately reproducing a historical figure
+  — which is exactly what the shipped UI already does.
 - The displayed posterior percentage is not currently calibrated,
   especially on close top-two calls (EVALUATION.md §6) — read it as a
   ranking signal, not a literal probability of correctness.
@@ -182,10 +207,16 @@ lib/diagnose/             Pure TypeScript, no I/O. Given observed
                           whether findings are scorer-specific (they
                           are not — see EVALUATION.md §4). A "correct
                           student, wrong answers are slips" candidate is
-                          available behind `includeNullHypothesis`
-                          (default false in the library; the shipped UI
-                          turns it on — see EVALUATION.md §2 for the
-                          measured benefit and cost).
+                          available behind `includeNullHypothesis`,
+                          default false so every figure measured before
+                          this candidate existed stays reproducible from
+                          the library default with no argument needed --
+                          not a recommendation against using it. A
+                          consumer importing this module directly should
+                          pass `true` unless deliberately reproducing a
+                          historical figure; the shipped UI already does
+                          (see EVALUATION.md §2 for the measured benefit
+                          and cost).
 
 lib/select/                Pure TypeScript, no I/O. Given the current
                           posterior, scores candidate next problems by
@@ -193,7 +224,15 @@ lib/select/                Pure TypeScript, no I/O. Given the current
                           the one that best discriminates the remaining
                           malrules. Frozen since the first evaluation
                           round; only ever called, never modified, by
-                          every experiment module below.
+                          every experiment module below. Confirmed by
+                          direct code reading (round four): groups a
+                          malrule's predicted answer by raw value only,
+                          never checking it against the correct answer,
+                          so a coincidentally-correct prediction is
+                          treated as fully discriminating as a genuine
+                          one -- see Key takeaway for the measured
+                          exposure and its association with adaptive
+                          selection's overconfidence when wrong.
 
 scripts/lib/               Experiment modules for `npm run evaluate`:
                           leave-one-out misattribution, false positives on

@@ -657,6 +657,26 @@ evidence of correctness than the same posterior reached via random
 questions, and the UI cannot currently tell the two apart -- it shows the
 same bare percentage either way.
 
+### Does `lib/select` contribute to this? (round four audit)
+
+Round four audit, `lib/select` unmodified: `scoreCandidates()` groups a
+malrule's predicted answer by raw value only (`inst.predictions[malruleId] ?? NOT_APPLICABLE`,
+select.ts line 60) and never checks it against `correct_answer`, so a
+coincidentally-correct ("non-triggering") prediction is scored as fully
+discriminating as a genuine one.
+
+Measured within this experiment's own protocol (adaptive strategy, same
+seeds): **22.2% of adaptively-selected questions (1040/4680, at steps where a
+non-uniform posterior exists) were non-triggering for at least one
+current top-ranked candidate.** At 5 observations, trials that experienced at
+least one such coincidence reinforcing the true (held-out) answer went on
+to misattribute 100.0% of the time (60/60), versus 26.1% (120/460)
+without one. **This is a strong association, not an isolated proven
+cause** -- malrules already known to be collision-prone (Experiment A, B)
+may drive both the coincidence and the misattribution independently --
+but it is a real, quantified contributor to the overconfidence finding
+below, not merely a plausible mechanism.
+
 ## 3. Open-world misattribution on genuinely novel procedures (Experiment A; Experiment H)
 
 The false positives in section 2 come from students with no systematic
