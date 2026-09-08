@@ -55,18 +55,19 @@ export interface PerMalruleBreakdown {
   topMisattributedToRate: number; // fraction of ALL trials (not just misattributed ones) landing on topMisattributedTo
 }
 
-function runHeldOutTrial(
+export function runHeldOutTrial(
   mr: MalruleMeta,
   cat: CategoryIndex,
   obsCount: number,
   injectedSlipRate: number,
   threshold: number,
-  rng: () => number
+  rng: () => number,
+  includeNullHypothesis: boolean = false
 ): { abstained: boolean; misattributedTo: string | null } | null {
   const obs = simulateObservations(mr.id, cat.instances, obsCount, injectedSlipRate, rng);
   if (obs.length < obsCount) return null; // not enough applicable instances for a fair trial
   const candidateSet = cat.malrules.filter((x) => x.id !== mr.id);
-  const result = diagnose(obs, cat.instances, candidateSet, MODEL_SLIP_RATE, threshold);
+  const result = diagnose(obs, cat.instances, candidateSet, MODEL_SLIP_RATE, threshold, "logLikelihood", includeNullHypothesis);
   return {
     abstained: result.noPatternDetected,
     misattributedTo: result.noPatternDetected ? null : (result.ranked[0]?.malruleId ?? null),

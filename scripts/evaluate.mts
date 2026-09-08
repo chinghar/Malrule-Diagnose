@@ -44,6 +44,16 @@ import { runExperimentH, renderMarkdown as renderExperimentH } from "./lib/exper
 import { runExperimentI, renderMarkdown as renderExperimentI } from "./lib/experimentI.mts";
 import { runExperimentJ, renderMarkdown as renderExperimentJ } from "./lib/experimentJ.mts";
 import { runExperimentK, renderMarkdown as renderExperimentK } from "./lib/experimentK.mts";
+import {
+  runTopKContamination,
+  runMraContamination,
+  runMisattributionContamination,
+  runFalsePositiveContamination,
+  runAdaptiveContamination,
+  runCalibrationContamination,
+  renderMarkdown as renderNonTriggeringContamination,
+} from "./lib/nonTriggeringContamination.mts";
+import { renderMarkdown as renderNullHypothesis } from "./lib/nullHypothesis.mts";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -277,6 +287,17 @@ function main() {
   console.log("Running Experiment K (mixed and transitioning students)...");
   const expK = runExperimentK();
 
+  console.log("Running Phase 1 non-triggering contamination audit...");
+  const contamTopK = runTopKContamination();
+  const contamMra = runMraContamination();
+  const contamMisattr = runMisattributionContamination();
+  const contamFalsePositive = runFalsePositiveContamination();
+  const contamAdaptive = runAdaptiveContamination();
+  const contamCalibration = runCalibrationContamination();
+
+  console.log("Running Phase 2/3 null hypothesis benefit/cost analysis...");
+  const nullHypothesisMd = renderNullHypothesis();
+
   const totalMalrules = CATEGORIES.reduce((s, c) => s + c.malrules.length, 0);
   const totalInstances = CATEGORIES.reduce((s, c) => s + c.instances.length, 0);
 
@@ -355,6 +376,27 @@ ${renderExperimentE(expEThresholdSweep, expEObsCountSweep)}
 ### Why this happens: non-triggering pairs
 
 ${renderNonTriggeringAudit(nonTriggeringStats, nonTriggeringExposure)}
+
+### Contamination audit: how much of every figure in this document is this artifact? (Phase 1)
+
+${renderNonTriggeringContamination(contamTopK, contamMra, contamMisattr, contamFalsePositive, contamAdaptive, contamCalibration)}
+
+### A direct fix: the null hypothesis candidate, and its cost (Phase 2/3/4)
+
+${nullHypothesisMd}
+
+**Phase 4 -- the shipped default.** The contradiction from the prior round
+(the tool described as not usable at its default, yet shipping that
+default) is resolved here, not by raising \`abstentionThreshold\` --
+Experiment A's own tradeoff curve already shows no threshold value fixes
+misattribution without heavy in-library coverage loss -- but by turning
+\`includeNullHypothesis\` ON in the shipped product specifically. **The
+actual UI (\`app/DiagnosisApp.tsx\`) now calls \`diagnose()\` with
+\`includeNullHypothesis: true\`**, while \`diagnose()\`'s own function
+default stays \`false\` so every existing figure in this document, and
+every existing call site in \`scripts/lib/\`, remains byte-for-byte
+reproducible without passing this argument. \`abstentionThreshold\` is left
+at its shipped default (1.0), unchanged this round.
 
 ### Does adaptive selection make this worse? (Experiment I)
 

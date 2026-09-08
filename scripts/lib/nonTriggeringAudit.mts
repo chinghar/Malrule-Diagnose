@@ -103,9 +103,8 @@ export function renderMarkdown(categoryStats: CategoryNonTriggeringStats[], expo
     .map((c) => `| ${c.category} | ${c.totalDefinedPairs} | ${c.nonTriggeringPairs} (${pct(c.nonTriggeringPairs / c.totalDefinedPairs)}) | ${c.nativeNonTriggering} | ${c.crossAppliedNonTriggering} |`)
     .join("\n")}`;
 
-  const topExposure = exposure.slice(0, 5);
-  const exposureTable = `| Malrule | Applicable instances | Non-triggering | Exposure |\n|---|---|---|---|\n${topExposure
-    .map((e) => `| ${e.malruleId} | ${e.applicableInstances} | ${e.nonTriggeringInstances} | ${fmtWilson(e.nonTriggeringInstances, e.applicableInstances)} |`)
+  const exposureTable = `| Malrule | Category | Applicable instances | Non-triggering | Exposure |\n|---|---|---|---|---|\n${exposure
+    .map((e) => `| ${e.malruleId} | ${e.category} | ${e.applicableInstances} | ${e.nonTriggeringInstances} | ${fmtWilson(e.nonTriggeringInstances, e.applicableInstances)} |`)
     .join("\n")}`;
 
   return `Read \`lib/diagnose\` and \`lib/select\` in full before writing this audit:
@@ -126,7 +125,7 @@ for it, which is also the probability any single uniformly-sampled
 observation of that malrule in the (a)/(b) sweep or Experiment A is
 zero-information by construction) is ${pct(meanExposure)}.
 
-**Highest-exposure malrules** (top 5 of 26):
+**All 26 malrules, by exposure (descending):**
 
 ${exposureTable}
 
