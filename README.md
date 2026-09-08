@@ -35,8 +35,9 @@ paper is and isn't apples-to-apples.
 ## Key takeaway
 
 Four evaluation rounds: closed-world accuracy, then confident
-misdiagnosis of correct students, then this round's exact mechanism,
-fix, and cost.
+misdiagnosis of correct students, then round three's exact mechanism,
+fix, and cost, then round four's audit of `lib/select`'s own
+contribution to a separate, already-known overconfidence problem.
 
 **Correct students were confidently misdiagnosed — ~50% of the time in
 subtraction — entirely from coincidence: certain malrules' predicted
@@ -108,7 +109,7 @@ set containing the true answer by construction almost everywhere (§11).
 
 What generalizes: given known executable procedures, "which one produced
 this" is matching, not reasoning. Outside that, matching needs an
-explicit "none of the above" rule — this round found it unreliable for
+explicit "none of the above" rule — round three found it unreliable for
 the most common real input (a correct student), traced why, fixed it,
 and measured the cost.
 
