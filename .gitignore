@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.DS_Store
+
+# Read-only external dependency, cloned separately (see README). Has its own
+# nested .git, so tracking it here would create a dangling gitlink rather
+# than actually versioning its contents.
+vendor/malrulelib/
