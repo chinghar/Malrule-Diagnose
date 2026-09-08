@@ -32,6 +32,44 @@ baseline with no model in the loop anywhere. See
 report states plainly where a comparison to the paper is and isn't
 apples-to-apples.
 
+## Key takeaway
+
+The headline number: **92.8% cross-template Malrule Reasoning Accuracy**,
+against the paper's LLM baseline of **40.5%** (answer-only) / **46.5%**
+(with step traces). Full measurement in [EVALUATION.md](EVALUATION.md).
+
+But "deterministic beats LLM" isn't really the finding — it's narrower and
+more useful than that. An LLM doing this task has to do two hard,
+*coupled*, probabilistic steps: infer the misconception in words, then
+simulate applying it correctly to a new problem it's never seen. Either
+step can fail, and they can fail independently — correctly describing "this
+kid always borrows from the left" doesn't guarantee correctly simulating
+that procedure on an unfamiliar problem. This engine only ever does the
+first step. Because MalruleLib's malrules are executable code, once the
+right one is identified, "predict the answer" isn't a second inference —
+it's a function call. Identification-correct and prediction-correct
+collapse into the same event, which is exactly why cross-template accuracy
+comes out this high, and exactly why EVALUATION.md is explicit that this
+isn't a fully apples-to-apples win over the paper's number.
+
+The part that generalizes beyond this project: when the hypothesis space is
+a library of *executable procedures* rather than natural-language
+descriptions, the inverse problem — "which procedure produced this
+output?" — is a matching problem, not a reasoning problem.
+
+Two smaller findings worth keeping in view:
+
+- The honesty machinery (ties, "no systematic pattern detected", untested
+  malrules) isn't a nice-to-have. The ambiguity analysis in
+  [EVALUATION.md](EVALUATION.md) found 90 malrule pairs that are genuinely
+  indistinguishable on at least one template. A system that always forced a
+  single verdict would be silently wrong on all of them.
+- Adaptive selection's observed ~28% reduction in observations needed
+  (Phase 4 in [EVALUATION.md](EVALUATION.md)) is real but modest, because
+  hypothesis spaces here are small (5–8 malrules per category) — even a
+  random question is often already fairly discriminating. DEBUGGY's 1982
+  idea still works; it just has less room to shine at this library's scale.
+
 ## Prior art
 
 This is not a new idea, just an old one done with a modern executable
