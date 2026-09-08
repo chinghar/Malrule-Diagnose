@@ -42,6 +42,7 @@ import { auditNonTriggeringPairs, auditPerMalruleExposure, renderMarkdown as ren
 import { runExperimentG, renderMarkdown as renderExperimentG } from "./lib/experimentG.mts";
 import { runExperimentH, renderMarkdown as renderExperimentH } from "./lib/experimentH.mts";
 import { runExperimentI, renderMarkdown as renderExperimentI } from "./lib/experimentI.mts";
+import { runSelectExposureAudit, renderMarkdown as renderSelectExposureAudit } from "./lib/selectExposureAudit.mts";
 import { runExperimentJ, renderMarkdown as renderExperimentJ } from "./lib/experimentJ.mts";
 import { runExperimentK, renderMarkdown as renderExperimentK } from "./lib/experimentK.mts";
 import {
@@ -281,6 +282,9 @@ function main() {
   console.log("Running Experiment I (adaptive selection, out-of-library)...");
   const expI = runExperimentI();
 
+  console.log("Running Item 1 lib/select non-triggering exposure audit (round four)...");
+  const selectExposure = runSelectExposureAudit();
+
   console.log("Running Experiment J (posterior calibration)...");
   const expJ = runExperimentJ();
 
@@ -401,6 +405,10 @@ at its shipped default (1.0), unchanged this round.
 ### Does adaptive selection make this worse? (Experiment I)
 
 ${renderExperimentI(expI)}
+
+### Does \`lib/select\` contribute to this? (round four audit)
+
+${renderSelectExposureAudit(selectExposure)}
 
 ## 3. Open-world misattribution on genuinely novel procedures (Experiment A; Experiment H)
 
