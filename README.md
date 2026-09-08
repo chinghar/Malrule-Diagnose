@@ -34,7 +34,7 @@ paper is and isn't apples-to-apples.
 
 ## Key takeaway
 
-Three evaluation rounds: closed-world accuracy, then confident
+Four evaluation rounds: closed-world accuracy, then confident
 misdiagnosis of correct students, then this round's exact mechanism,
 fix, and cost.
 
@@ -116,9 +116,12 @@ This project is best read as an engineering artifact plus an honest audit
 of its own limits, not a benchmark result: a deterministic inverse solver
 over an open, executable misconception library, with adaptive next-problem
 selection and a working interface, which does not appear to exist
-elsewhere — evaluated, across three rounds, specifically for the ways it
-could mislead the people using it, with the most serious way found so far
-now measurably fixed, at a measured cost.
+elsewhere — evaluated, across four rounds, specifically for the ways it
+could mislead the people using it: the most serious way found so far is
+now measurably fixed, at a measured cost, and a second, characterised way
+— adaptive selection treating a coincidentally-correct prediction as
+informative — has been left deliberately unfixed, pending
+re-measurement.
 
 ## Prior art
 

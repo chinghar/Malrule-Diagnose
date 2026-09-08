@@ -121,6 +121,21 @@ export default function DiagnosisApp() {
               (chosen to best distinguish the malrules still under consideration)
             </span>
           </h2>
+          {observations.length > 0 && (
+            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+              Adaptive selection is experimental: it can treat a coincidentally-correct prediction as
+              informative, and is more confident when wrong than picking problems at random. See{" "}
+              <a
+                href="https://github.com/chinghar/Malrule-Diagnose/blob/main/EVALUATION.md"
+                className="underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                EVALUATION.md
+              </a>{" "}
+              for the measured details.
+            </p>
+          )}
           <p className="mt-2 text-lg font-medium">{currentInstance.problem_text}</p>
           <p className="mt-1 text-sm text-neutral-500">Correct answer: {currentInstance.correct_answer}</p>
 
