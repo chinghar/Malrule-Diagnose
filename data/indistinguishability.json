@@ -1,6 +1,7 @@
 {
   "minInstancesToJudgeTemplate": 3,
   "pairsChecked": 325,
+  "crossCategoryPairsChecked": 249,
   "pairsWithAnyCoApplicableInstance": 51,
   "crossCategoryPairsWithAnyCoApplicableInstance": 0,
   "pairs": [

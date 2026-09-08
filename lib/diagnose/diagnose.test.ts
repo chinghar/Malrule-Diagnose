@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diagnose } from "./diagnose";
+import { diagnose, DEFAULT_ABSTENTION_THRESHOLD } from "./diagnose";
 import type { MalruleMeta, ProblemInstance } from "./types";
 
 const malrules: MalruleMeta[] = [
@@ -193,5 +193,114 @@ describe("diagnose", () => {
 
   it("rejects a negative abstentionThreshold", () => {
     expect(() => diagnose([{ instanceId: "i1", studentAnswer: "10" }], instances, malrules, 0.1, -1)).toThrow();
+  });
+});
+
+describe("diagnose -- alternative scoring methods (Experiment G)", () => {
+  it("defaults to scoringMethod 'logLikelihood' with byte-identical output to specifying it explicitly", () => {
+    const obs = [
+      { instanceId: "i1", studentAnswer: "10" },
+      { instanceId: "i2", studentAnswer: "22" },
+    ];
+    const implicit = diagnose(obs, instances, malrules, 0.1);
+    const explicit = diagnose(obs, instances, malrules, 0.1, DEFAULT_ABSTENTION_THRESHOLD, "logLikelihood");
+    expect(explicit).toEqual(implicit);
+  });
+
+  // ruleA is applicable to (and matches on) 2 instances; ruleB is applicable
+  // to (and matches on) only 1. Under the default per-observation product,
+  // ruleB's single confident match outscores ruleA's two (fewer factors,
+  // each < 1, beats more of them) -- a real, non-obvious property of the
+  // log-likelihood model. naiveExactMatch, which only ever counts matches,
+  // must reverse that ranking.
+  const scoringMalrules: MalruleMeta[] = [
+    { id: "x.ruleA", category: "x", name: "A", description: "" },
+    { id: "x.ruleB", category: "x", name: "B", description: "" },
+  ];
+  const scoringInstances: ProblemInstance[] = [
+    { instance_id: "jA", native_malrule_id: "x.ruleA", template: "t", problem_text: "a", operation: "op", correct_answer: "0", predictions: { "x.ruleA": "5", "x.ruleB": "5" } },
+    { instance_id: "jB", native_malrule_id: "x.ruleA", template: "t", problem_text: "b", operation: "op", correct_answer: "0", predictions: { "x.ruleA": "6" } },
+  ];
+  const scoringObs = [
+    { instanceId: "jA", studentAnswer: "5" },
+    { instanceId: "jB", studentAnswer: "6" },
+  ];
+
+  it("default logLikelihood scoring can rank fewer-but-perfect matches above more matches", () => {
+    const result = diagnose(scoringObs, scoringInstances, scoringMalrules, 0.1, DEFAULT_ABSTENTION_THRESHOLD, "logLikelihood");
+    expect(result.ranked[0]?.malruleId).toBe("x.ruleB"); // 1/1, beats ruleA's 2/2
+  });
+
+  it("naiveExactMatch ranks purely by match count, reversing that", () => {
+    const result = diagnose(scoringObs, scoringInstances, scoringMalrules, 0.1, DEFAULT_ABSTENTION_THRESHOLD, "naiveExactMatch");
+    expect(result.ranked[0]?.malruleId).toBe("x.ruleA"); // 2 matches > 1
+    expect(result.ranked[0]?.logLikelihood).toBe(2); // naive score IS the raw match count
+  });
+
+  it("binomialLikelihood equals logLikelihood plus log(C(applicable, matches)) exactly", () => {
+    const withPartialMismatch = diagnose(
+      [
+        { instanceId: "jA", studentAnswer: "5" }, // matches both
+        { instanceId: "jB", studentAnswer: "6" }, // matches ruleA only (ruleB inapplicable here)
+      ],
+      scoringInstances,
+      scoringMalrules,
+      0.1,
+      DEFAULT_ABSTENTION_THRESHOLD,
+      "logLikelihood"
+    );
+    const binomial = diagnose(
+      [
+        { instanceId: "jA", studentAnswer: "5" },
+        { instanceId: "jB", studentAnswer: "6" },
+      ],
+      scoringInstances,
+      scoringMalrules,
+      0.1,
+      DEFAULT_ABSTENTION_THRESHOLD,
+      "binomialLikelihood"
+    );
+    const ruleA_default = withPartialMismatch.ranked.find((r) => r.malruleId === "x.ruleA")!;
+    const ruleA_binom = binomial.ranked.find((r) => r.malruleId === "x.ruleA")!;
+    // ruleA: applicable=2, matches=2 -> log(C(2,2)) = log(1) = 0
+    expect(ruleA_binom.logLikelihood - ruleA_default.logLikelihood).toBeCloseTo(Math.log(1), 10);
+  });
+
+  // ruleZ has three distinct templates in its own native instances; ruleA
+  // has one. On an observation where both match identically (a genuine tie
+  // under every other method), prevalencePrior must break the tie in favor
+  // of the higher-template-count malrule -- and ruleZ sorts *after* ruleA
+  // alphabetically, so a win for ruleZ can't be explained by the alphabetic
+  // tie-break alone.
+  const priorMalrules: MalruleMeta[] = [
+    { id: "y.ruleA", category: "y", name: "A", description: "" },
+    { id: "y.ruleZ", category: "y", name: "Z", description: "" },
+  ];
+  const priorInstances: ProblemInstance[] = [
+    { instance_id: "k1", native_malrule_id: "y.ruleZ", template: "t1", problem_text: "k1", operation: "op", correct_answer: "0", predictions: { "y.ruleA": "5", "y.ruleZ": "5" } },
+    { instance_id: "k2", native_malrule_id: "y.ruleZ", template: "t2", problem_text: "k2", operation: "op", correct_answer: "0", predictions: { "y.ruleZ": "9" } },
+    { instance_id: "k3", native_malrule_id: "y.ruleZ", template: "t3", problem_text: "k3", operation: "op", correct_answer: "0", predictions: { "y.ruleZ": "9" } },
+    { instance_id: "k4", native_malrule_id: "y.ruleA", template: "t1", problem_text: "k4", operation: "op", correct_answer: "0", predictions: { "y.ruleA": "9" } },
+  ];
+
+  it("logLikelihood/naiveExactMatch/binomialLikelihood tie on equal evidence (alphabetical tie-break picks ruleA)", () => {
+    for (const method of ["logLikelihood", "naiveExactMatch", "binomialLikelihood"] as const) {
+      const result = diagnose([{ instanceId: "k1", studentAnswer: "5" }], priorInstances, priorMalrules, 0.1, DEFAULT_ABSTENTION_THRESHOLD, method);
+      expect(result.tiedTop.sort()).toEqual(["y.ruleA", "y.ruleZ"]);
+      expect(result.ranked[0]?.malruleId).toBe("y.ruleA"); // alphabetical tie-break only
+    }
+  });
+
+  it("prevalencePrior breaks that same tie in favor of the higher-template-count malrule, not alphabetically", () => {
+    const result = diagnose(
+      [{ instanceId: "k1", studentAnswer: "5" }],
+      priorInstances,
+      priorMalrules,
+      0.1,
+      DEFAULT_ABSTENTION_THRESHOLD,
+      "prevalencePrior"
+    );
+    expect(result.tiedTop).toEqual(["y.ruleZ"]); // no longer tied
+    expect(result.ranked[0]?.malruleId).toBe("y.ruleZ"); // 3 templates outweighs 1, against alphabetical order
   });
 });

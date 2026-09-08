@@ -4,6 +4,7 @@ import { diagnose } from "../../lib/diagnose/diagnose.ts";
 import { hashString, mulberry32, simulateObservations } from "../../lib/diagnose/testSupport.ts";
 import type { CategoryIndex, MalruleMeta } from "../../lib/diagnose/types.ts";
 import { CATEGORIES, MODEL_SLIP_RATE, pct } from "./data.mts";
+import { fmtWilsonFromRate } from "./stats.mts";
 
 // ---------------------------------------------------------------------------
 // Chance baselines: 1/n over applicable candidates, per category.
@@ -145,12 +146,12 @@ export function renderMarkdown(
   const byApplicable = summarizeByApplicableCount(scalingTrials);
   const maxApplicable = maxApplicableCountObserved(scalingTrials);
 
-  const nominalTable = `| Nominal candidate-set size | n | Top-1 accuracy |\n|---|---|---|\n${byNominal
-    .map((r) => `| ${r.key} | ${r.n} | ${pct(r.top1Rate)} |`)
+  const nominalTable = `| Nominal candidate-set size | n | Top-1 accuracy (95% CI, Wilson) |\n|---|---|---|\n${byNominal
+    .map((r) => `| ${r.key} | ${r.n} | ${fmtWilsonFromRate(r.top1Rate, r.n)} |`)
     .join("\n")}`;
 
-  const applicableTable = `| Applicable candidates (actual) | n | Top-1 accuracy |\n|---|---|---|\n${byApplicable
-    .map((r) => `| ${r.key} | ${r.n} | ${pct(r.top1Rate)} |`)
+  const applicableTable = `| Applicable candidates (actual) | n | Top-1 accuracy (95% CI, Wilson) |\n|---|---|---|\n${byApplicable
+    .map((r) => `| ${r.key} | ${r.n} | ${fmtWilsonFromRate(r.top1Rate, r.n)} |`)
     .join("\n")}`;
 
   return `### Chance baselines

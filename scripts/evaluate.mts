@@ -18,6 +18,7 @@ import { hashString, mulberry32, shuffle, simulateObservations } from "../lib/di
 import type { CategoryIndex, MalruleMeta, ProblemInstance } from "../lib/diagnose/types.ts";
 import { posteriorFromScores, selectNextInstance, uniformPosterior } from "../lib/select/select.ts";
 import { CATEGORIES, MODEL_SLIP_RATE, pct } from "./lib/data.mts";
+import { fmtWilsonFromRate } from "./lib/stats.mts";
 import { runSweep, OBS_COUNTS, INJECTED_SLIP_RATES, TRIALS_PER_COMBO, type SweepCell } from "./lib/sweep.mts";
 import {
   runSweep as runExperimentASweep,
@@ -32,6 +33,17 @@ import {
   renderMarkdown as renderExperimentC,
 } from "./lib/experimentC.mts";
 import { runMraCeiling, runSlipRateCeiling, renderMarkdown as renderExperimentD } from "./lib/experimentD.mts";
+import {
+  runThresholdSweep as runExperimentEThresholdSweep,
+  runObsCountSweep as runExperimentEObsCountSweep,
+  renderMarkdown as renderExperimentE,
+} from "./lib/experimentE.mts";
+import { auditNonTriggeringPairs, auditPerMalruleExposure, renderMarkdown as renderNonTriggeringAudit } from "./lib/nonTriggeringAudit.mts";
+import { runExperimentG, renderMarkdown as renderExperimentG } from "./lib/experimentG.mts";
+import { runExperimentH, renderMarkdown as renderExperimentH } from "./lib/experimentH.mts";
+import { runExperimentI, renderMarkdown as renderExperimentI } from "./lib/experimentI.mts";
+import { runExperimentJ, renderMarkdown as renderExperimentJ } from "./lib/experimentJ.mts";
+import { runExperimentK, renderMarkdown as renderExperimentK } from "./lib/experimentK.mts";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -206,9 +218,9 @@ function runAdaptiveComparison(): StrategySummary[] {
 
 function renderSweepTable(cells: SweepCell[], injectedSlipRate: number): string {
   const rows = cells.filter((c) => c.injectedSlipRate === injectedSlipRate);
-  const header = "| Observations | n | Top-1 | Top-1-or-tied | Top-3 |\n|---|---|---|---|---|";
+  const header = "| Observations | n | Top-1 (95% CI, Wilson) | Top-1-or-tied | Top-3 (95% CI, Wilson) |\n|---|---|---|---|---|";
   const body = rows
-    .map((r) => `| ${r.obsCount} | ${r.n} | ${pct(r.top1)} | ${pct(r.top1OrTied)} | ${pct(r.top3)} |`)
+    .map((r) => `| ${r.obsCount} | ${r.n} | ${fmtWilsonFromRate(r.top1, r.n)} | ${pct(r.top1OrTied)} | ${fmtWilsonFromRate(r.top3, r.n)} |`)
     .join("\n");
   return `${header}\n${body}`;
 }
@@ -242,6 +254,29 @@ function main() {
   const mraCeiling = runMraCeiling();
   const slipDecomposition = runSlipRateCeiling();
 
+  console.log("Running Experiment E (non-malrule students / false positives)...");
+  const expEThresholdSweep = runExperimentEThresholdSweep();
+  const expEObsCountSweep = runExperimentEObsCountSweep();
+
+  console.log("Running non-triggering pairs audit...");
+  const nonTriggeringStats = auditNonTriggeringPairs();
+  const nonTriggeringExposure = auditPerMalruleExposure();
+
+  console.log("Running Experiment G (scorer robustness)...");
+  const expG = runExperimentG();
+
+  console.log("Running Experiment H (leave-one-out proxy validity)...");
+  const expH = runExperimentH();
+
+  console.log("Running Experiment I (adaptive selection, out-of-library)...");
+  const expI = runExperimentI();
+
+  console.log("Running Experiment J (posterior calibration)...");
+  const expJ = runExperimentJ();
+
+  console.log("Running Experiment K (mixed and transitioning students)...");
+  const expK = runExperimentK();
+
   const totalMalrules = CATEGORIES.reduce((s, c) => s + c.malrules.length, 0);
   const totalInstances = CATEGORIES.reduce((s, c) => s + c.instances.length, 0);
 
@@ -270,24 +305,116 @@ what that fixed assumption costs.
 different metrics.** Identification accuracy asks only "did the correct
 malrule rank first (or in the top 3)?" MRA is the paper's task: infer the
 malrule from one example, then predict the student's answer on a
-*different* problem. Section 7 below states plainly why even MRA is not a
+*different* problem. Section 11 below states plainly why even MRA is not a
 like-for-like comparison with the paper's published LLM baselines (40.5%
 cross-template answer-only, 46.5% with step traces) -- read it before
 treating any number here as a claim of beating that baseline.
 
-This document is organized around what the four experiments below actually
-found, not around the order they were built in. The headline finding is
-Experiment B, not the MRA percentage.
+**On confidence intervals:** every rate below is a proportion out of a
+known number of trials or instances, and is reported with a 95% Wilson
+score interval (chosen over the normal/Wald approximation for its better
+coverage at small n or extreme proportions, and over Clopper-Pearson
+because it needs no incomplete-beta-function dependency). Where trials
+share a malrule or category rather than being independent draws -- which
+understates uncertainty if ignored -- a second, more conservative
+between-cluster interval is given alongside the headline number, treating
+each cluster's own rate as one data point. Both methods are implemented in
+\`scripts/lib/stats.mts\`. For the large per-condition sweep grids in
+sections 3 and 9, adding a full interval to every one of 100+ rows would
+make the tables unreadable; those cells follow the identical Wilson
+formula from their own stated n, and the headline/summary numbers drawn
+from the same data carry explicit intervals so the method is never opaque.
 
-## 2. Indistinguishability (Experiment B) -- the headline finding
+This document is organized in **severity order**, not the order
+experiments were run or the order of the prior evaluation round. This
+round's central finding -- that the engine produces confident false
+diagnoses on students who are not running any malrule at all, and that
+this is far worse in one category than the pooled number suggests --
+supersedes the previous round's headline (Experiment B's indistinguishability
+finding, still important, now section 5) as the most important thing to
+know before using this tool.
 
-${renderExperimentB(expB)}
+## 2. False positives on students who are not running any malrule (Experiments E, I; non-triggering audit)
 
-## 3. Open-world misattribution (Experiment A)
+This is the most important untested case from the first evaluation round,
+and the reason this section leads the document: **\`diagnose()\` has no
+"correct answer" hypothesis anywhere.** It only ever scores the malrules
+it's given; \`correct_answer\` is metadata on each instance, never a
+candidate. The only thing standing between a healthy student and a
+confident false diagnosis is (1) most malrules' predictions differing from
+correct on most instances, and (2) the abstention threshold. Neither is a
+guarantee, and this was first observed directly and manually, before any
+of this section's systematic measurement existed: during this project's
+own UI verification, three consecutive CORRECT answers to real subtraction
+problems produced a confident "subtraction.always_borrow_left, 85.3%
+posterior" diagnosis, purely because that malrule's output happened to
+coincide with the correct answer on 2 of the 3 problems shown.
+
+${renderExperimentE(expEThresholdSweep, expEObsCountSweep)}
+
+### Why this happens: non-triggering pairs
+
+${renderNonTriggeringAudit(nonTriggeringStats, nonTriggeringExposure)}
+
+### Does adaptive selection make this worse? (Experiment I)
+
+${renderExperimentI(expI)}
+
+## 3. Open-world misattribution on genuinely novel procedures (Experiment A; Experiment H)
+
+The false positives in section 2 come from students with no systematic
+procedure at all. This section asks the adjacent question: what happens
+when a student *is* running a systematic procedure, just not one already
+in the library?
 
 ${renderExperimentA(expASweep, expABreakdown, totalMalruleCount)}
 
-## 4. Ceiling analysis and error decomposition (Experiment D)
+### Is leave-one-out even a fair test of this? (Experiment H)
+
+Held-out MalruleLib malrules might be more similar to in-library malrules
+than a real child's invented bug would be (making the number above
+optimistic), or less similar (making it pessimistic) -- unknown without
+measuring it directly, which is what this subsection does.
+
+${renderExperimentH(expH)}
+
+## 4. Does any of this depend on the scoring function? (Experiment G)
+
+Sections 2 and 3 both depend on \`lib/diagnose\`'s scoring math. This
+re-runs both protocols under three alternative scorers -- behind a new
+parameter, default unchanged -- to check whether the findings above belong
+to the general method (matching an enumerated hypothesis space) or are an
+artifact of this particular implementation.
+
+${renderExperimentG(expG)}
+
+## 5. Indistinguishability (Experiment B)
+
+The previous evaluation round's headline finding. Still critically
+important for interpreting every other section -- it's the structural
+reason certain malrules (the same ones driving sections 2 and 3's worst
+cases) are hard to tell apart -- but no longer the single most urgent
+thing to know about this tool.
+
+${renderExperimentB(expB)}
+
+## 6. Posterior calibration (Experiment J)
+
+Sections 2-5 are about whether the *top-ranked malrule* is right. This
+section asks a different question: when the UI shows "62% confident,"
+does that number mean what it says?
+
+${renderExperimentJ(expJ)}
+
+## 7. Mixed and transitioning students (Experiment K)
+
+Real children often half-transition between strategies rather than
+cleanly switching. This checks what the engine reports when the true
+generative process genuinely is a blend of two known malrules.
+
+${renderExperimentK(expK)}
+
+## 8. Ceiling analysis and error decomposition (Experiment D)
 
 Before the ceiling analysis, here is what MRA itself measures: given one
 worked mistake, infer the malrule, then predict the student's answer on a
@@ -298,18 +425,18 @@ construction -- so this number is really measuring single-example
 identification accuracy, restricted to worked-mistake instances that have a
 valid new-problem partner of the stated kind.
 
-| Pairing | n | MRA accuracy |
+| Pairing | n | MRA accuracy (95% CI, Wilson) |
 |---|---|---|
-| Same-template | ${sameTemplate.n} | ${pct(sameTemplate.top1)} |
-| Cross-template | ${crossTemplate.n} | ${pct(crossTemplate.top1)} |
+| Same-template | ${sameTemplate.n} | ${fmtWilsonFromRate(sameTemplate.top1, sameTemplate.n)} |
+| Cross-template | ${crossTemplate.n} | ${fmtWilsonFromRate(crossTemplate.top1, crossTemplate.n)} |
 
 (Chance baseline for comparison: pooled 1-of-n guessing over applicable
-candidates is ${pct(pooledChance.chanceTop1)} -- see Experiment C, section 5, for the
+candidates is ${pct(pooledChance.chanceTop1)} -- see Experiment C, section 9, for the
 full per-category breakdown.)
 
 ${renderExperimentD(mraCeiling, slipDecomposition)}
 
-## 5. Chance baselines and candidate-set scaling (Experiment C)
+## 9. Chance baselines, candidate-set scaling, and the identification-accuracy sweep (Experiment C)
 
 ${renderExperimentC(chanceBaselines, pooledChance, scalingTrials)}
 
@@ -340,7 +467,7 @@ ${renderSweepTable(sweep, 0.1)}
 
 ${renderSweepTable(sweep, 0.2)}
 
-## 6. Adaptive vs. random problem selection
+## 10. Adaptive vs. random problem selection
 
 Re-runs measurement (a)'s protocol, but instead of asking a fixed number of
 random observations, each strategy is run to **convergence**: keep asking
@@ -372,7 +499,14 @@ ${(() => {
   return `Adaptive selection needed **${delta.toFixed(2)} fewer observations on average** (${relative.toFixed(1)}% reduction) to reach a unique, correct diagnosis, and converged in ${pct(adaptive.convergedCount / adaptive.n)} of runs vs. ${pct(random.convergedCount / random.n)} for random selection within the ${MAX_OBSERVATIONS}-observation cap.`;
 })()}
 
-## 7. On comparison to the paper's LLM baseline
+*(The paragraph and table above are preserved verbatim from the prior
+evaluation round, per that round's explicit requirement. This note is
+additive, not a change to that text: convergence-rate intervals are
+${fmtWilsonFromRate(adaptiveComparison.find((s) => s.strategy === "adaptive")!.convergedCount / adaptiveComparison.find((s) => s.strategy === "adaptive")!.n, adaptiveComparison.find((s) => s.strategy === "adaptive")!.n)} (adaptive) and
+${fmtWilsonFromRate(adaptiveComparison.find((s) => s.strategy === "random")!.convergedCount / adaptiveComparison.find((s) => s.strategy === "random")!.n, adaptiveComparison.find((s) => s.strategy === "random")!.n)} (random) -- both comfortably high and overlapping, consistent with
+the "not a large effect" framing above.)*
+
+## 11. On comparison to the paper's LLM baseline
 
 **The numbers in this document are not comparable to the paper's reported
 LLM accuracy, and the MRA figures above should not be read as this engine
@@ -382,22 +516,25 @@ The paper's task is open-world: given one worked example, an LLM must
 infer an *unseen* procedure -- one it was never told the identity or even
 the existence of -- in natural language, and then re-execute that inferred
 procedure correctly on a new problem, with no guarantee the true procedure
-is describable at all, let alone a member of any enumerated list.
+is describable at all, let alone a member of any enumerated list, or even
+that the student is running a systematic procedure at all.
 
-This engine does neither of those things. It selects from a pre-enumerated
+This engine does none of those things. It selects from a pre-enumerated
 candidate set of ${totalMalruleCount} malrules that is known in advance, over
 category-scoped candidate pools of only 5-8 members (Experiment C).
-Critically, in every measurement above except Experiment A, **the true
-malrule is a member of the candidate set by construction** -- the
-diagnosis problem is "which of these known options produced this data,"
-not "what is this data" in any open sense. Experiment A is the one place
-in this document where the true procedure is *not* available as an
-option, and it is the closest analogue to the paper's actual difficulty --
-its answer (misattribution rate of ${pct(
+Critically, in every measurement above except Experiments A, E, G, and H,
+**the true malrule is a member of the candidate set by construction** --
+the diagnosis problem is "which of these known options produced this
+data," not "what is this data" in any open sense. Sections 2 and 3 are the
+closest analogue to the paper's actual difficulty, and are far more honest
+measures of how this system behaves outside the assumption that the true
+procedure is known in advance than the 92.8% MRA figure is: a
+${pct(
     expASweep.find((p) => p.threshold === 1 && p.slipRate === 0 && p.obsCount === 5)!.heldOutMisattributionRate
-  )} at the shipped default) is a far more honest measure of how this
-system behaves outside the assumption that the true procedure is in the
-library than the 92.8% MRA figure is.
+  )} misattribution rate on genuinely novel procedures (Experiment A, direction of
+bias unresolved -- Experiment H), and a false-positive rate on students
+running no procedure at all that is much worse than its pooled figure
+suggests in at least one category (Experiment E: ~50% in subtraction).
 
 Read the 92.8%/93.3% MRA figures as: "given that the true procedure is
 known to be one of a handful of pre-enumerated options, how often does
@@ -427,6 +564,18 @@ baseline answers, not a harder version of the same question solved better.
   console.log(
     `(Experiment D) MRA floor=${pct(mraCeiling.floor)} fairExpected=${pct(mraCeiling.expectedUnderFairTiebreak)} measured=${pct(mraCeiling.measured)}`
   );
+  console.log(
+    `(Experiment E) fully-correct false-positive rate: ${pct(
+      expEThresholdSweep.find((r) => r.specLabel === "(a) fully correct, 0% slip" && r.threshold === 1 && r.obsCount === 5)!.falsePositiveRate
+    )}`
+  );
+  console.log(
+    `(Experiment G) misattribution/FP rate range across scorers: ${pct(Math.min(...expG.map((r) => r.misattributionRate)))}-${pct(Math.max(...expG.map((r) => r.misattributionRate)))} / ${pct(Math.min(...expG.map((r) => r.falsePositiveRate)))}-${pct(Math.max(...expG.map((r) => r.falsePositiveRate)))}`
+  );
+  console.log(
+    `(Experiment H) held-out=${pct(expH.find((r) => r.bugClass === "a_held_out")!.misattributionRate)} composed=${pct(expH.find((r) => r.bugClass === "b_composed")!.misattributionRate)} perturbed=${pct(expH.find((r) => r.bugClass === "c_perturbed")!.misattributionRate)}`
+  );
+  console.log(`(Experiment J) ECE all=${pct(expJ.all.ece)} close-top-two=${pct(expJ.closeTopTwo.ece)}`);
   for (const s of adaptiveComparison) {
     console.log(
       `(adaptive selection) ${s.strategy}: converged ${s.convergedCount}/${s.n}, mean obs ${s.meanObservationsAmongConverged.toFixed(2)}`

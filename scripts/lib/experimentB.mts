@@ -14,6 +14,7 @@
 
 import type { ProblemInstance } from "../../lib/diagnose/types";
 import { CATEGORIES, pct } from "./data.mts";
+import { fmtWilson } from "./stats.mts";
 
 export const MIN_INSTANCES_TO_JUDGE_TEMPLATE = 3;
 
@@ -69,6 +70,7 @@ export interface ConfusabilityRow {
 export interface ExperimentBResult {
   minInstancesToJudgeTemplate: number;
   pairsChecked: number;
+  crossCategoryPairsChecked: number;
   pairsWithAnyCoApplicableInstance: number;
   crossCategoryPairsWithAnyCoApplicableInstance: number;
   pairs: PairResult[];
@@ -175,6 +177,12 @@ export function runExperimentB(): ExperimentBResult {
 
   const pairsChecked = (refs.length * (refs.length - 1)) / 2;
   const crossCategoryCompared = pairs.filter((p) => !p.sameCategory);
+  let crossCategoryPairsChecked = 0;
+  for (let i = 0; i < refs.length; i++) {
+    for (let j = i + 1; j < refs.length; j++) {
+      if (refs[i]!.category !== refs[j]!.category) crossCategoryPairsChecked += 1;
+    }
+  }
 
   const confusabilityMap = new Map<string, { category: string; full: Set<string>; some: Set<string> }>();
   for (const ref of refs) confusabilityMap.set(ref.id, { category: ref.category, full: new Set(), some: new Set() });
@@ -208,6 +216,7 @@ export function runExperimentB(): ExperimentBResult {
   return {
     minInstancesToJudgeTemplate: MIN_INSTANCES_TO_JUDGE_TEMPLATE,
     pairsChecked,
+    crossCategoryPairsChecked,
     pairsWithAnyCoApplicableInstance: pairs.length,
     crossCategoryPairsWithAnyCoApplicableInstance: crossCategoryCompared.length,
     pairs,
@@ -246,12 +255,15 @@ engine, and would survive a full reimplementation of \`lib/diagnose\`.
 
 Checked all ${result.pairsChecked} possible pairs among the 26 malrules (not just
 within-category pairs) against every instance in the entire index (not
-just their own category's instances). Only ${result.pairsWithAnyCoApplicableInstance} pairs are ever
-co-applicable to the same problem at all. **Cross-category collisions:
-confirmed zero, empirically** (${result.crossCategoryPairsWithAnyCoApplicableInstance} of the checked
-cross-category pairs ever produced a co-applicable instance) -- collisions
-are entirely a within-category phenomenon in this library. Full
-machine-readable detail, including every template-level comparison, is in
+just their own category's instances). Only ${result.pairsWithAnyCoApplicableInstance} of ${result.pairsChecked} pairs
+(${fmtWilson(result.pairsWithAnyCoApplicableInstance, result.pairsChecked)}) are ever co-applicable to the same problem at
+all. **Cross-category
+collisions: confirmed zero, empirically** -- ${fmtWilson(result.crossCategoryPairsWithAnyCoApplicableInstance, result.crossCategoryPairsChecked)} of the
+${result.crossCategoryPairsChecked} checked cross-category pairs ever produced a co-applicable
+instance; the Wilson upper bound (not just the point estimate of zero)
+bounds how confident that "never" claim is. Collisions are entirely a
+within-category phenomenon in this library. Full machine-readable detail,
+including every template-level comparison, is in
 \`data/indistinguishability.json\`.
 
 ### Fully indistinguishable (not fixable by any problem choice in this library)

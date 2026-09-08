@@ -23,96 +23,351 @@ what that fixed assumption costs.
 different metrics.** Identification accuracy asks only "did the correct
 malrule rank first (or in the top 3)?" MRA is the paper's task: infer the
 malrule from one example, then predict the student's answer on a
-*different* problem. Section 7 below states plainly why even MRA is not a
+*different* problem. Section 11 below states plainly why even MRA is not a
 like-for-like comparison with the paper's published LLM baselines (40.5%
 cross-template answer-only, 46.5% with step traces) -- read it before
 treating any number here as a claim of beating that baseline.
 
-This document is organized around what the four experiments below actually
-found, not around the order they were built in. The headline finding is
-Experiment B, not the MRA percentage.
+**On confidence intervals:** every rate below is a proportion out of a
+known number of trials or instances, and is reported with a 95% Wilson
+score interval (chosen over the normal/Wald approximation for its better
+coverage at small n or extreme proportions, and over Clopper-Pearson
+because it needs no incomplete-beta-function dependency). Where trials
+share a malrule or category rather than being independent draws -- which
+understates uncertainty if ignored -- a second, more conservative
+between-cluster interval is given alongside the headline number, treating
+each cluster's own rate as one data point. Both methods are implemented in
+`scripts/lib/stats.mts`. For the large per-condition sweep grids in
+sections 3 and 9, adding a full interval to every one of 100+ rows would
+make the tables unreadable; those cells follow the identical Wilson
+formula from their own stated n, and the headline/summary numbers drawn
+from the same data carry explicit intervals so the method is never opaque.
 
-## 2. Indistinguishability (Experiment B) -- the headline finding
+This document is organized in **severity order**, not the order
+experiments were run or the order of the prior evaluation round. This
+round's central finding -- that the engine produces confident false
+diagnoses on students who are not running any malrule at all, and that
+this is far worse in one category than the pooled number suggests --
+supersedes the previous round's headline (Experiment B's indistinguishability
+finding, still important, now section 5) as the most important thing to
+know before using this tool.
 
-Computed directly from the committed index's predicted-answer columns --
-no `diagnose()` call anywhere in this analysis. It is a property of
-MalruleLib's problem generators and standard templates, not of the scoring
-engine, and would survive a full reimplementation of `lib/diagnose`.
+## 2. False positives on students who are not running any malrule (Experiments E, I; non-triggering audit)
 
-Checked all 325 possible pairs among the 26 malrules (not just
-within-category pairs) against every instance in the entire index (not
-just their own category's instances). Only 51 pairs are ever
-co-applicable to the same problem at all. **Cross-category collisions:
-confirmed zero, empirically** (0 of the checked
-cross-category pairs ever produced a co-applicable instance) -- collisions
-are entirely a within-category phenomenon in this library. Full
-machine-readable detail, including every template-level comparison, is in
-`data/indistinguishability.json`.
+This is the most important untested case from the first evaluation round,
+and the reason this section leads the document: **`diagnose()` has no
+"correct answer" hypothesis anywhere.** It only ever scores the malrules
+it's given; `correct_answer` is metadata on each instance, never a
+candidate. The only thing standing between a healthy student and a
+confident false diagnosis is (1) most malrules' predictions differing from
+correct on most instances, and (2) the abstention threshold. Neither is a
+guarantee, and this was first observed directly and manually, before any
+of this section's systematic measurement existed: during this project's
+own UI verification, three consecutive CORRECT answers to real subtraction
+problems produced a confident "subtraction.always_borrow_left, 85.3%
+posterior" diagnosis, purely because that malrule's output happened to
+coincide with the correct answer on 2 of the 3 problems shown.
 
-### Fully indistinguishable (not fixable by any problem choice in this library)
+For each student type below, 800 trials (200 per category x 4 categories) were
+generated at 5 observations per trial, and diagnosed against the FULL
+in-library candidate set for that category (no malrule held out -- these
+students are not simulating any malrule at all). "False positive" means
+the engine named a malrule instead of reporting "no systematic pattern
+detected." Types (a)-(c) generate wrong answers from `correct_answer`
+alone via arithmetic-token perturbation, never consulting any malrule's
+predicted output, so any resulting match is coincidence, not construction.
+Type (d) deliberately plants 1-2 coincidental matches per trial as an
+adversarial worst case.
 
-| Malrule A | Malrule B | Co-applicable instances | Shared templates |
-|---|---|---|---|
-| decimals.ignore_decimal_point | decimals.whole_number_thinking | 64 | 5 |
+### At the shipped default (threshold=1, 5 observations)
 
-This is the one pair no diagnostic worksheet built from this library's
-templates can ever tell apart from each other, no matter which problems
-are chosen.
-
-### Indistinguishable on some templates only (fixable by problem choice)
-
-| Malrule A | Malrule B | Identical templates | Discriminating instance found | Example |
+| Student type | n | False-positive rate (95% CI, Wilson) | Mean posterior when wrong | Most often named |
 |---|---|---|---|---|
-| subtraction.always_borrow_left | subtraction.borrow_from_bottom | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.borrow_from_bottom→640 |
-| subtraction.always_borrow_left | subtraction.diff_0_n_equals_n | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.diff_0_n_equals_n→640 |
-| subtraction.always_borrow_left | subtraction.smaller_from_larger | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.smaller_from_larger→640 |
-| subtraction.always_borrow_left | subtraction.stops_borrow_at_zero | 5/35 (14.3%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.stops_borrow_at_zero→640 |
-| subtraction.borrow_from_bottom | subtraction.borrow_no_decrement | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.borrow_no_decrement→28 |
-| subtraction.borrow_from_bottom | subtraction.diff_0_n_equals_n | 7/35 (20.0%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.diff_0_n_equals_n→18 |
-| subtraction.borrow_from_bottom | subtraction.smaller_from_larger | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.smaller_from_larger→22 |
-| subtraction.borrow_from_bottom | subtraction.stops_borrow_at_zero | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.stops_borrow_at_zero→18 |
-| subtraction.borrow_no_decrement | subtraction.diff_0_n_equals_n | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.diff_0_n_equals_n→18 |
-| subtraction.borrow_no_decrement | subtraction.smaller_from_larger | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.smaller_from_larger→22 |
-| subtraction.borrow_no_decrement | subtraction.stops_borrow_at_zero | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.stops_borrow_at_zero→18 |
-| subtraction.diff_0_n_equals_n | subtraction.smaller_from_larger | 10/35 (28.6%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.diff_0_n_equals_n→18, subtraction.smaller_from_larger→22 |
-| subtraction.diff_0_n_equals_n | subtraction.stops_borrow_at_zero | 9/35 (25.7%) | subtraction.borrow_from_bottom#0005 | "Calculate: 60 - 51" (basic_subtraction): subtraction.diff_0_n_equals_n→11, subtraction.stops_borrow_at_zero→9 |
-| subtraction.smaller_from_larger | subtraction.stops_borrow_at_zero | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.smaller_from_larger→22, subtraction.stops_borrow_at_zero→18 |
-| fractions.denominator_comparison_error | fractions.natural_number_bias_numerator_only | 4/20 (20.0%) | fractions.denominator_comparison_error#0002 | "Three runners completed different portions of a race. Runner 1 finished 2/10 of the course, Runner 2 finished 4/7, and Runner 3 finished 3/6. Order these fractions from smallest to largest." (word_problem_three_fractions): fractions.denominator_comparison_error→3/6, 4/7, 2/10, fractions.natural_number_bias_numerator_only→4/7 |
-| decimals.longer_is_larger | decimals.shorter_is_larger | 3/17 (17.6%) | decimals.ignore_decimal_point#0006 | "If $32.74 is divided equally among 2.6 people, how much does each person get?" (money_context): decimals.longer_is_larger→32.74, decimals.shorter_is_larger→$2.6 |
-| decimals.longer_is_larger | decimals.whole_number_thinking | 2/17 (11.8%) | decimals.ignore_decimal_point#0000 | "Calculate: 5.6 ÷ 2.4" (division): decimals.longer_is_larger→5.6, decimals.whole_number_thinking→2 |
-| decimals.right_align_decimals | decimals.whole_number_thinking | 2/4 (50.0%) | decimals.right_align_decimals#0002 | "Jake earned $23.9 on Monday and $44.95 on Tuesday. How much did he earn in total?" (money_word_problem): decimals.right_align_decimals→473.4, decimals.whole_number_thinking→$473.4 |
+| (a) fully correct, 0% slip | 800 | 15.4% (95% CI 13.0%-18.0%, Wilson, n=800) | 66.0% | subtraction.stops_borrow_at_zero (49/800), subtraction.always_borrow_left (26/800), subtraction.diff_0_n_equals_n (21/800) |
+| (b) correct + 5% arithmetic slips | 800 | 17.6% (95% CI 15.1%-20.4%, Wilson, n=800) | 63.5% | subtraction.always_borrow_left (44/800), subtraction.stops_borrow_at_zero (40/800), subtraction.diff_0_n_equals_n (25/800) |
+| (b) correct + 10% arithmetic slips | 800 | 15.6% (95% CI 13.3%-18.3%, Wilson, n=800) | 63.8% | subtraction.stops_borrow_at_zero (52/800), subtraction.always_borrow_left (27/800), subtraction.diff_0_n_equals_n (22/800) |
+| (b) correct + 20% arithmetic slips | 800 | 15.3% (95% CI 12.9%-17.9%, Wilson, n=800) | 60.3% | subtraction.always_borrow_left (34/800), subtraction.diff_0_n_equals_n (33/800), subtraction.stops_borrow_at_zero (30/800) |
+| (c) purely random errors | 800 | 0.5% (95% CI 0.2%-1.3%, Wilson, n=800) | 61.5% | subtraction.always_borrow_left (1/800), subtraction.borrow_no_decrement (1/800), fractions.multiply_across_for_division (1/800) |
+| (d) adversarial: 1 coincidental match | 800 | 30.5% (95% CI 27.4%-33.8%, Wilson, n=800) | 68.5% | subtraction.always_borrow_left (37/800), subtraction.stops_borrow_at_zero (34/800), subtraction.diff_0_n_equals_n (29/800) |
+| (d) adversarial: 2 coincidental matches | 800 | 41.4% (95% CI 38.0%-44.8%, Wilson, n=800) | 69.5% | subtraction.stops_borrow_at_zero (33/800), subtraction.diff_0_n_equals_n (32/800), multiplication_division.division_makes_smaller (31/800) |
 
-Each row above has a concrete, printed example: a template where the pair
-collides completely, and a specific instance elsewhere where they
-disagree -- proof the pair is not fundamentally confusable, just unlucky
-on some problem shapes. A worksheet author can use this table directly to
-avoid the colliding templates.
+**15.4% (95% CI 13.0%-18.0%, Wilson, n=800) of fully correct students are confidently
+misdiagnosed with a malrule they do not have**, at a mean posterior of
+66.0% -- not a marginal or low-confidence call. It
+is essentially flat across 0-20% arithmetic slip, meaning this is not
+primarily a noise-tolerance problem. `subtraction.stops_borrow_at_zero`
+and `subtraction.always_borrow_left` account for the large majority of
+these false positives -- the same subtraction cluster Experiment B already
+identified as densely collision-prone; a correct answer on certain
+subtraction problems simply *is* what those malrules predict,
+coincidentally.
 
-### Per-malrule confusability degree
+**That trial-level interval is optimistic, and checking it changes the
+headline.** Pooling 800 trials as independent hides that they come from
+only 4 categories, and category is exactly the axis that matters here:
 
-| Malrule | Category | Fully indistinguishable from | Collides on some template with |
+| Category | n | False-positive rate |
+|---|---|---|
+| subtraction | 200 | 50.5% (95% CI 43.6%-57.4%, Wilson, n=200) |
+| fractions | 200 | 4.0% (95% CI 2.0%-7.7%, Wilson, n=200) |
+| decimals | 200 | 3.0% (95% CI 1.4%-6.4%, Wilson, n=200) |
+| multiplication_division | 200 | 4.0% (95% CI 2.0%-7.7%, Wilson, n=200) |
+
+**Between-category interval: 15.4% (95% CI 0.0%-52.6%, between-category t-interval, k=4).** The lower bound touches
+zero -- the pooled 15% figure is not a stable, generalizable property of
+"the engine"; it is almost entirely a **subtraction-specific** problem
+(50.5%) averaged with three categories that are comparatively fine (3-4%
+each). **The honest headline is "roughly a 50% false-positive rate on
+correct subtraction students," not "15% overall."**
+
+As a check that abstention is not simply broken: purely random,
+unstructured errors produce a false-positive rate of only 0.5%. The
+mechanism correctly recognizes genuine noise. The problem is specific to
+correct-or-nearly-correct students, whose answers keep landing on values
+that happen to be some malrule's coincidental output on that particular
+problem.
+
+### Threshold sweep
+
+**(a) fully correct, 0% slip**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 16.9% |
+| 0.5 | 18.6% |
+| 1 | 15.4% |
+| 1.5 | 15.4% |
+| 2 | 12.6% |
+| 3 | 6.6% |
+| 5 | 0.1% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(b) correct + 5% arithmetic slips**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 17.1% |
+| 0.5 | 18.4% |
+| 1 | 17.6% |
+| 1.5 | 12.8% |
+| 2 | 14.0% |
+| 3 | 6.5% |
+| 5 | 0.5% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(b) correct + 10% arithmetic slips**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 15.9% |
+| 0.5 | 17.8% |
+| 1 | 15.6% |
+| 1.5 | 14.5% |
+| 2 | 12.5% |
+| 3 | 5.9% |
+| 5 | 0.0% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(b) correct + 20% arithmetic slips**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 14.8% |
+| 0.5 | 16.1% |
+| 1 | 15.3% |
+| 1.5 | 13.5% |
+| 2 | 10.0% |
+| 3 | 4.4% |
+| 5 | 0.1% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(c) purely random errors**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 1.6% |
+| 0.5 | 1.5% |
+| 1 | 0.5% |
+| 1.5 | 0.3% |
+| 2 | 0.0% |
+| 3 | 0.1% |
+| 5 | 0.0% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(d) adversarial: 1 coincidental match**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 31.8% |
+| 0.5 | 29.4% |
+| 1 | 30.5% |
+| 1.5 | 25.3% |
+| 2 | 22.8% |
+| 3 | 10.5% |
+| 5 | 0.4% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+**(d) adversarial: 2 coincidental matches**
+
+| Threshold | False-positive rate |
+|---|---|
+| 0 | 43.9% |
+| 0.5 | 43.5% |
+| 1 | 41.4% |
+| 1.5 | 39.5% |
+| 2 | 30.1% |
+| 3 | 10.5% |
+| 5 | 0.4% |
+| 8 | 0.0% |
+| 12 | 0.0% |
+| 20 | 0.0% |
+
+No threshold achieves both a near-zero false-positive rate on correct
+students and acceptable in-library coverage (see Experiment A's tradeoff
+curve for the coverage-cost side): threshold=2 (Experiment A's
+recommendation) still misdiagnoses 12.6% of correct students; threshold=5, where correct-student
+false positives finally approach zero, costs 87%+ in-library abstention
+(Experiment A). **There is no single threshold value that makes this
+tool simultaneously safe for correct students and usable for its
+intended purpose.**
+
+### Observation-count sweep (at the shipped default)
+
+**(a) fully correct, 0% slip:** 3 obs -> 22.5%, 5 obs -> 15.4%, 10 obs -> 6.9%
+
+**(b) correct + 5% arithmetic slips:** 3 obs -> 21.8%, 5 obs -> 17.6%, 10 obs -> 7.8%
+
+**(b) correct + 10% arithmetic slips:** 3 obs -> 21.9%, 5 obs -> 15.6%, 10 obs -> 8.0%
+
+**(b) correct + 20% arithmetic slips:** 3 obs -> 19.8%, 5 obs -> 15.3%, 10 obs -> 6.6%
+
+**(c) purely random errors:** 3 obs -> 1.0%, 5 obs -> 0.5%, 10 obs -> 0.0%
+
+**(d) adversarial: 1 coincidental match:** 3 obs -> 47.4%, 5 obs -> 30.5%, 10 obs -> 16.1%
+
+**(d) adversarial: 2 coincidental matches:** 3 obs -> 64.8%, 5 obs -> 41.4%, 10 obs -> 19.8%
+
+False positives are worst with few observations and improve as more are
+collected (22.5% at 3 observations, down to 6.9% at 10) -- but even at 10 observations it has not reached zero, and a
+teacher checking only 3-5 problems (a realistic real-world usage pattern)
+sees the worst end of this range, not the best.
+
+### Why this happens: non-triggering pairs
+
+Read `lib/diagnose` and `lib/select` in full before writing this audit:
+**neither special-cases a prediction that equals the correct answer** --
+`scoreMalrule()` and `scoreCandidates()` both score and group a
+non-triggering match identically to a genuine, informative one. This is a
+real, confirmed structural gap, reported as a bug here, not fixed.
+
+| Category | Total defined pairs | Non-triggering pairs | Native non-triggering | Cross-applied non-triggering |
+|---|---|---|---|---|
+| subtraction | 4388 | 1067 (24.3%) | 0 | 1067 |
+| fractions | 1482 | 32 (2.2%) | 0 | 32 |
+| decimals | 1285 | 170 (13.2%) | 0 | 170 |
+| multiplication_division | 1440 | 74 (5.1%) | 0 | 74 |
+
+**1343/8595 (15.6% (95% CI 14.9%-16.4%, Wilson, n=8595)) of all (instance, malrule) pairs in the
+committed index are non-triggering** -- entirely on the cross-applied side
+(native: 0, confirmed empirically to be exactly zero by
+`build_index.py`'s own filter, not merely assumed from reading the script;
+cross-applied: 1343). Mean exposure across all 26 malrules (the
+fraction of a malrule's own applicable instances that are non-triggering
+for it, which is also the probability any single uniformly-sampled
+observation of that malrule in the (a)/(b) sweep or Experiment A is
+zero-information by construction) is 9.4%.
+
+**Highest-exposure malrules** (top 5 of 26):
+
+| Malrule | Applicable instances | Non-triggering | Exposure |
 |---|---|---|---|
-| subtraction.borrow_from_bottom | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
-| subtraction.diff_0_n_equals_n | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
-| subtraction.smaller_from_larger | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.stops_borrow_at_zero) |
-| subtraction.stops_borrow_at_zero | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger) |
-| subtraction.always_borrow_left | subtraction | 0 | 4 (subtraction.borrow_from_bottom, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
-| subtraction.borrow_no_decrement | subtraction | 0 | 4 (subtraction.borrow_from_bottom, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
-| decimals.whole_number_thinking | decimals | 1 | 3 (decimals.ignore_decimal_point, decimals.longer_is_larger, decimals.right_align_decimals) |
-| decimals.longer_is_larger | decimals | 0 | 2 (decimals.shorter_is_larger, decimals.whole_number_thinking) |
-| decimals.ignore_decimal_point | decimals | 1 | 1 (decimals.whole_number_thinking) |
-| decimals.right_align_decimals | decimals | 0 | 1 (decimals.whole_number_thinking) |
-| decimals.shorter_is_larger | decimals | 0 | 1 (decimals.longer_is_larger) |
-| fractions.denominator_comparison_error | fractions | 0 | 1 (fractions.natural_number_bias_numerator_only) |
-| fractions.natural_number_bias_numerator_only | fractions | 0 | 1 (fractions.denominator_comparison_error) |
+| subtraction.stops_borrow_at_zero | 640 | 344 | 53.8% (95% CI 49.9%-57.6%, Wilson, n=640) |
+| subtraction.diff_0_n_equals_n | 640 | 263 | 41.1% (95% CI 37.3%-44.9%, Wilson, n=640) |
+| subtraction.always_borrow_left | 640 | 220 | 34.4% (95% CI 30.8%-38.1%, Wilson, n=640) |
+| decimals.shorter_is_larger | 400 | 90 | 22.5% (95% CI 18.7%-26.8%, Wilson, n=400) |
+| decimals.longer_is_larger | 400 | 80 | 20.0% (95% CI 16.4%-24.2%, Wilson, n=400) |
 
-Confusability clusters almost entirely within `subtraction` (a six-malrule
-group that substantially overlaps: `always_borrow_left`, `borrow_from_bottom`,
-`borrow_no_decrement`, `diff_0_n_equals_n`, `smaller_from_larger`,
-`stops_borrow_at_zero`) and a small `decimals` group. `multiplication_division`
-has zero confusable pairs at this sample threshold.
+These are the same three subtraction malrules Experiment E already found
+driving nearly all of that experiment's false positives, and the same
+cluster Experiment B flagged as densely collision-prone -- three
+independent analyses converging on the same root cause. **This directly
+and provably explains Experiment E's type (a)/(b) false positives**: a
+"correct student matches malrule X" event is, by definition, a
+non-triggering pair for X on that instance -- there is no other way for a
+genuinely correct answer to match a malrule's predicted (wrong-by-design)
+output. It also plausibly contributes to Experiment D's 6.9-percentage-point
+collision-driven error and the 20.6% MRA tie rate, though that split has
+not been fully decomposed here.
 
-## 3. Open-world misattribution (Experiment A)
+### Does adaptive selection make this worse? (Experiment I)
+
+| Observations | Strategy | n | Misattribution rate | Mean top posterior (all trials) | Mean top posterior (when misattributed) |
+|---|---|---|---|---|---|
+| 1 | adaptive | 520 | 26.9% | 53.3% | 71.1% |
+| 2 | adaptive | 520 | 34.6% | 64.4% | 76.6% |
+| 3 | adaptive | 520 | 34.6% | 69.0% | 74.1% |
+| 4 | adaptive | 520 | 34.6% | 76.7% | 91.0% |
+| 5 | adaptive | 520 | 34.6% | 78.9% | 96.3% |
+| 6 | adaptive | 520 | 34.6% | 79.4% | 97.6% |
+| 7 | adaptive | 520 | 34.6% | 79.9% | 99.0% |
+| 8 | adaptive | 520 | 26.9% | 80.0% | 99.9% |
+| 9 | adaptive | 520 | 26.9% | 80.0% | 99.8% |
+| 10 | adaptive | 520 | 26.9% | 80.0% | 99.9% |
+| 1 | random | 520 | 25.8% | 52.7% | 62.1% |
+| 2 | random | 520 | 32.3% | 59.9% | 67.9% |
+| 3 | random | 520 | 33.7% | 66.4% | 73.7% |
+| 4 | random | 520 | 32.9% | 70.3% | 75.2% |
+| 5 | random | 520 | 30.4% | 73.2% | 78.7% |
+| 6 | random | 520 | 29.2% | 75.1% | 83.9% |
+| 7 | random | 520 | 28.8% | 77.1% | 84.3% |
+| 8 | random | 520 | 27.9% | 78.3% | 83.3% |
+| 9 | random | 520 | 28.3% | 79.8% | 84.0% |
+| 10 | random | 520 | 26.3% | 81.2% | 85.1% |
+
+**The misattribution RATE does not diverge meaningfully between strategies**
+at any observation count tested (e.g. at 5 observations: adaptive
+34.6% vs. random 30.4%, n=520 each -- their
+95% Wilson intervals overlap substantially, so this difference does not
+clear its own noise floor and should not be reported as a real effect).
+
+**But posterior concentration when wrong diverges sharply and is not
+close.** At 5 observations, adaptive's mean posterior on a misattributed
+call is 96.3% vs. random's 78.7% -- a
+17.6% gap over ~150+ misattributed trials per cell, not a small-sample
+artifact. By 10 observations, adaptive's wrong calls average
+99.9% posterior (essentially certain) vs. random's
+85.1%.
+
+**The hypothesis is supported, but not in the form originally stated: adaptive
+selection does not make out-of-library students more likely to be
+misdiagnosed -- it makes the misdiagnosis look far more certain when it
+happens.** This follows directly from what adaptive selection is designed
+to do: aggressively concentrate the posterior onto whichever hypothesis is
+currently leading, which is exactly as dangerous when that hypothesis is
+wrong as it is useful when it's right. **Direct implication for the UI:**
+a high posterior on an adaptively-selected sequence of problems is weaker
+evidence of correctness than the same posterior reached via random
+questions, and the UI cannot currently tell the two apart -- it shows the
+same bare percentage either way.
+
+## 3. Open-world misattribution on genuinely novel procedures (Experiment A; Experiment H)
+
+The false positives in section 2 come from students with no systematic
+procedure at all. This section asks the adjacent question: what happens
+when a student *is* running a systematic procedure, just not one already
+in the library?
 
 Leave-one-out: for each of the 26 malrules, its own predicted answers are
 used to generate held-out "student" observations (read directly from that
@@ -130,10 +385,21 @@ injected slip rate {0%, 5%, 10%, 20%} x observation count {3, 5, 10}, 30
 trials per (malrule, condition) combination.
 
 **At the engine's shipped default (threshold=1, clean data, 5 observations):
-misattribution rate = 28.1%** (n=780). More than
+misattribution rate = 28.1% (95% CI 25.0%-31.3%, Wilson, n=780)**. More than
 one in 4 times a held-out procedure is confidently
 misdiagnosed as some other, wrong, in-library malrule rather than flagged
 as unrecognized.
+
+That trial-level interval treats each of the 780 trials as
+independent, which understates the truth: 30 trials sharing the same
+malrule are not independent draws (a malrule with a near-twin
+misattributes on nearly all of its own trials; one with no collisions
+misattributes on almost none). The between-malrule interval, treating each
+of the 26 malrules' own rate as one data point, is wider and more honest:
+**29.2% (95% CI 15.0%-43.5%, between-malrule t-interval, k=26)**. Even
+that more conservative lower bound clears zero comfortably, so the claim
+"misattribution is meaningfully non-zero" survives its own conservative
+interval.
 
 ### Tradeoff curve (mean across all 12 tested observation-count x slip-rate conditions)
 
@@ -391,7 +657,7 @@ misattribution is 17.5% (vs. 32.3% at
 the shipped default) and mean in-library abstention cost is
 12.6% (vs. 7.6% at the
 default). At the reference condition alone (clean data, 5 observations):
-held-out misattribution 19.9%, in-library abstention
+held-out misattribution 19.9% (95% CI 17.2%-22.8%, Wilson, n=780), in-library abstention
 cost 0.1%. **This is a real cost, not a free
 improvement** -- it is stated explicitly, not hidden: raising the
 threshold trades some in-library coverage for meaningfully less confident
@@ -401,7 +667,253 @@ occasional "no pattern detected" on a real in-library case is a more
 acceptable failure mode than a confident wrong diagnosis of an
 out-of-library one.
 
-## 4. Ceiling analysis and error decomposition (Experiment D)
+### Is leave-one-out even a fair test of this? (Experiment H)
+
+Held-out MalruleLib malrules might be more similar to in-library malrules
+than a real child's invented bug would be (making the number above
+optimistic), or less similar (making it pessimistic) -- unknown without
+measuring it directly, which is what this subsection does.
+
+| Out-of-library class | n | Misattribution rate (95% CI, Wilson) | Mean nearest-neighbor distance |
+|---|---|---|---|
+| (a) held-out library malrule | 520 | 30.6% (95% CI 26.8%-34.7%, Wilson, n=520) | 0.741 |
+| (b) composed: two malrules alternated per-instance | 1020 | 37.6% (95% CI 34.7%-40.7%, Wilson, n=1020) | 0.766 |
+| (c) perturbed: one malrule's answer, arithmetically nudged | 520 | 1.7% (95% CI 0.9%-3.3%, Wilson, n=520) | 0.993 |
+
+Nearest-neighbor distance measures how close each synthetic identity's
+answers come to matching some single remaining in-library malrule (0 =
+identical everywhere tested, e.g. `decimals.ignore_decimal_point` vs.
+its near-twin; 1 = never matches anything). Composed and perturbed bugs
+are farther from any in-library neighbor than held-out malrules are
+(mean distance: held-out 0.741, composed
+0.766, perturbed 0.993) --
+some held-out malrules have an exact or near-exact in-library twin (Experiment
+B), which composed/perturbed identities by construction cannot.
+
+**Direction of bias:** held-out 30.6%, composed
+37.6%, perturbed 1.7%. The two harder classes move in OPPOSITE directions from held-out: composed bugs misattribute more often (a child inconsistently blending two candidate misconceptions is harder for the engine to correctly flag as unrecognized than a single held-out malrule), while perturbed bugs misattribute less often (a numeric perturbation on top of a known malrule's answer almost never exactly coincides with any other single malrule's output, so abstention works essentially as designed). There is no single directional correction to Experiment A's 28% supported by this evidence -- whether leave-one-out is optimistic or pessimistic for a real child depends on what kind of novel bug that child actually has: blended/transitioning strategies push the true rate higher than 28%; a known bug with an extra unrelated slip pushes it far lower.
+
+## 4. Does any of this depend on the scoring function? (Experiment G)
+
+Sections 2 and 3 both depend on `lib/diagnose`'s scoring math. This
+re-runs both protocols under three alternative scorers -- behind a new
+parameter, default unchanged -- to check whether the findings above belong
+to the general method (matching an enumerated hypothesis space) or are an
+artifact of this particular implementation.
+
+Every method below scores the IDENTICAL simulated observations
+(same seeds; the scoring method is never part of the seed) at the
+reference condition (threshold=1, 5 observations, clean data) --
+only the scoring function changes.
+
+| Scoring method | Misattribution rate (Experiment A re-run) | False-positive rate (Experiment E re-run) |
+|---|---|---|
+| logLikelihood | 28.1% (95% CI 25.0%-31.3%, Wilson, n=780) | 16.4% (95% CI 14.0%-19.1%, Wilson, n=800) |
+| naiveExactMatch | 39.9% (95% CI 36.5%-43.3%, Wilson, n=780) | 44.9% (95% CI 41.5%-48.3%, Wilson, n=800) |
+| binomialLikelihood | 32.2% (95% CI 29.0%-35.5%, Wilson, n=780) | 27.9% (95% CI 24.9%-31.1%, Wilson, n=800) |
+| prevalencePrior | 28.5% (95% CI 25.4%-31.7%, Wilson, n=780) | 16.5% (95% CI 14.1%-19.2%, Wilson, n=800) |
+
+Misattribution rate spans 11.8% across all four methods (from 28.1% to
+39.9%); false-positive rate spans 28.5% (from 16.4% to
+44.9%).
+
+## 5. Indistinguishability (Experiment B)
+
+The previous evaluation round's headline finding. Still critically
+important for interpreting every other section -- it's the structural
+reason certain malrules (the same ones driving sections 2 and 3's worst
+cases) are hard to tell apart -- but no longer the single most urgent
+thing to know about this tool.
+
+Computed directly from the committed index's predicted-answer columns --
+no `diagnose()` call anywhere in this analysis. It is a property of
+MalruleLib's problem generators and standard templates, not of the scoring
+engine, and would survive a full reimplementation of `lib/diagnose`.
+
+Checked all 325 possible pairs among the 26 malrules (not just
+within-category pairs) against every instance in the entire index (not
+just their own category's instances). Only 51 of 325 pairs
+(15.7% (95% CI 12.1%-20.0%, Wilson, n=325)) are ever co-applicable to the same problem at
+all. **Cross-category
+collisions: confirmed zero, empirically** -- 0.0% (95% CI 0.0%-1.5%, Wilson, n=249) of the
+249 checked cross-category pairs ever produced a co-applicable
+instance; the Wilson upper bound (not just the point estimate of zero)
+bounds how confident that "never" claim is. Collisions are entirely a
+within-category phenomenon in this library. Full machine-readable detail,
+including every template-level comparison, is in
+`data/indistinguishability.json`.
+
+### Fully indistinguishable (not fixable by any problem choice in this library)
+
+| Malrule A | Malrule B | Co-applicable instances | Shared templates |
+|---|---|---|---|
+| decimals.ignore_decimal_point | decimals.whole_number_thinking | 64 | 5 |
+
+This is the one pair no diagnostic worksheet built from this library's
+templates can ever tell apart from each other, no matter which problems
+are chosen.
+
+### Indistinguishable on some templates only (fixable by problem choice)
+
+| Malrule A | Malrule B | Identical templates | Discriminating instance found | Example |
+|---|---|---|---|---|
+| subtraction.always_borrow_left | subtraction.borrow_from_bottom | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.borrow_from_bottom→640 |
+| subtraction.always_borrow_left | subtraction.diff_0_n_equals_n | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.diff_0_n_equals_n→640 |
+| subtraction.always_borrow_left | subtraction.smaller_from_larger | 1/35 (2.9%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.smaller_from_larger→640 |
+| subtraction.always_borrow_left | subtraction.stops_borrow_at_zero | 5/35 (14.3%) | subtraction.always_borrow_left#0000 | "Calculate: 957 - 317" (three_digit_no_borrow): subtraction.always_borrow_left→530, subtraction.stops_borrow_at_zero→640 |
+| subtraction.borrow_from_bottom | subtraction.borrow_no_decrement | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.borrow_no_decrement→28 |
+| subtraction.borrow_from_bottom | subtraction.diff_0_n_equals_n | 7/35 (20.0%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.diff_0_n_equals_n→18 |
+| subtraction.borrow_from_bottom | subtraction.smaller_from_larger | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.smaller_from_larger→22 |
+| subtraction.borrow_from_bottom | subtraction.stops_borrow_at_zero | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_from_bottom→38, subtraction.stops_borrow_at_zero→18 |
+| subtraction.borrow_no_decrement | subtraction.diff_0_n_equals_n | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.diff_0_n_equals_n→18 |
+| subtraction.borrow_no_decrement | subtraction.smaller_from_larger | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.smaller_from_larger→22 |
+| subtraction.borrow_no_decrement | subtraction.stops_borrow_at_zero | 4/31 (12.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.borrow_no_decrement→28, subtraction.stops_borrow_at_zero→18 |
+| subtraction.diff_0_n_equals_n | subtraction.smaller_from_larger | 10/35 (28.6%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.diff_0_n_equals_n→18, subtraction.smaller_from_larger→22 |
+| subtraction.diff_0_n_equals_n | subtraction.stops_borrow_at_zero | 9/35 (25.7%) | subtraction.borrow_from_bottom#0005 | "Calculate: 60 - 51" (basic_subtraction): subtraction.diff_0_n_equals_n→11, subtraction.stops_borrow_at_zero→9 |
+| subtraction.smaller_from_larger | subtraction.stops_borrow_at_zero | 8/35 (22.9%) | subtraction.borrow_from_bottom#0000 | "Calculate: (71 - 53) - 14" (multi_step_problem): subtraction.smaller_from_larger→22, subtraction.stops_borrow_at_zero→18 |
+| fractions.denominator_comparison_error | fractions.natural_number_bias_numerator_only | 4/20 (20.0%) | fractions.denominator_comparison_error#0002 | "Three runners completed different portions of a race. Runner 1 finished 2/10 of the course, Runner 2 finished 4/7, and Runner 3 finished 3/6. Order these fractions from smallest to largest." (word_problem_three_fractions): fractions.denominator_comparison_error→3/6, 4/7, 2/10, fractions.natural_number_bias_numerator_only→4/7 |
+| decimals.longer_is_larger | decimals.shorter_is_larger | 3/17 (17.6%) | decimals.ignore_decimal_point#0006 | "If $32.74 is divided equally among 2.6 people, how much does each person get?" (money_context): decimals.longer_is_larger→32.74, decimals.shorter_is_larger→$2.6 |
+| decimals.longer_is_larger | decimals.whole_number_thinking | 2/17 (11.8%) | decimals.ignore_decimal_point#0000 | "Calculate: 5.6 ÷ 2.4" (division): decimals.longer_is_larger→5.6, decimals.whole_number_thinking→2 |
+| decimals.right_align_decimals | decimals.whole_number_thinking | 2/4 (50.0%) | decimals.right_align_decimals#0002 | "Jake earned $23.9 on Monday and $44.95 on Tuesday. How much did he earn in total?" (money_word_problem): decimals.right_align_decimals→473.4, decimals.whole_number_thinking→$473.4 |
+
+Each row above has a concrete, printed example: a template where the pair
+collides completely, and a specific instance elsewhere where they
+disagree -- proof the pair is not fundamentally confusable, just unlucky
+on some problem shapes. A worksheet author can use this table directly to
+avoid the colliding templates.
+
+### Per-malrule confusability degree
+
+| Malrule | Category | Fully indistinguishable from | Collides on some template with |
+|---|---|---|---|
+| subtraction.borrow_from_bottom | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
+| subtraction.diff_0_n_equals_n | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
+| subtraction.smaller_from_larger | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.stops_borrow_at_zero) |
+| subtraction.stops_borrow_at_zero | subtraction | 0 | 5 (subtraction.always_borrow_left, subtraction.borrow_from_bottom, subtraction.borrow_no_decrement, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger) |
+| subtraction.always_borrow_left | subtraction | 0 | 4 (subtraction.borrow_from_bottom, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
+| subtraction.borrow_no_decrement | subtraction | 0 | 4 (subtraction.borrow_from_bottom, subtraction.diff_0_n_equals_n, subtraction.smaller_from_larger, subtraction.stops_borrow_at_zero) |
+| decimals.whole_number_thinking | decimals | 1 | 3 (decimals.ignore_decimal_point, decimals.longer_is_larger, decimals.right_align_decimals) |
+| decimals.longer_is_larger | decimals | 0 | 2 (decimals.shorter_is_larger, decimals.whole_number_thinking) |
+| decimals.ignore_decimal_point | decimals | 1 | 1 (decimals.whole_number_thinking) |
+| decimals.right_align_decimals | decimals | 0 | 1 (decimals.whole_number_thinking) |
+| decimals.shorter_is_larger | decimals | 0 | 1 (decimals.longer_is_larger) |
+| fractions.denominator_comparison_error | fractions | 0 | 1 (fractions.natural_number_bias_numerator_only) |
+| fractions.natural_number_bias_numerator_only | fractions | 0 | 1 (fractions.denominator_comparison_error) |
+
+Confusability clusters almost entirely within `subtraction` (a six-malrule
+group that substantially overlaps: `always_borrow_left`, `borrow_from_bottom`,
+`borrow_no_decrement`, `diff_0_n_equals_n`, `smaller_from_larger`,
+`stops_borrow_at_zero`) and a small `decimals` group. `multiplication_division`
+has zero confusable pairs at this sample threshold.
+
+## 6. Posterior calibration (Experiment J)
+
+Sections 2-5 are about whether the *top-ranked malrule* is right. This
+section asks a different question: when the UI shows "62% confident,"
+does that number mean what it says?
+
+Pooled over 6 observation counts (1, 2, 3, 5, 7, 10) x
+4 injected slip rates (0.0%, 5.0%, 10.0%, 20.0%), 15
+trials per (malrule, condition), restricted to trials where the true
+malrule is in the candidate set (in-library only -- Experiment A already
+covers the out-of-library case, where "correct" isn't even a possible
+outcome). "Gap" = reported posterior minus empirical accuracy: positive
+means overconfident, negative means underconfident.
+
+### Reliability, all in-library trials (n=9360)
+
+| Reported posterior bucket | n | Mean reported posterior | Empirical accuracy (95% CI, Wilson) | Gap |
+|---|---|---|---|---|
+| 10.0%-20.0% | 86 | 18.4% | 22.1% (95% CI 14.6%-31.9%, Wilson, n=86) | -3.7% |
+| 20.0%-30.0% | 141 | 25.6% | 26.2% (95% CI 19.7%-34.1%, Wilson, n=141) | -0.7% |
+| 30.0%-40.0% | 252 | 35.6% | 34.1% (95% CI 28.6%-40.2%, Wilson, n=252) | 1.4% |
+| 40.0%-50.0% | 895 | 46.7% | 63.7% (95% CI 60.5%-66.8%, Wilson, n=895) | -17.0% |
+| 50.0%-60.0% | 730 | 55.0% | 53.6% (95% CI 49.9%-57.2%, Wilson, n=730) | 1.4% |
+| 60.0%-70.0% | 926 | 65.5% | 76.3% (95% CI 73.5%-79.0%, Wilson, n=926) | -10.8% |
+| 70.0%-80.0% | 1085 | 75.0% | 82.7% (95% CI 80.3%-84.8%, Wilson, n=1085) | -7.6% |
+| 80.0%-90.0% | 1184 | 84.7% | 87.4% (95% CI 85.4%-89.2%, Wilson, n=1184) | -2.7% |
+| 90.0%-100.0% | 4061 | 98.2% | 96.1% (95% CI 95.5%-96.7%, Wilson, n=4061) | 2.0% |
+
+**Expected calibration error: 5.0%.** In aggregate the posterior leans
+*underconfident*, not overconfident, in the low-to-mid range: the
+40.0%-50.0% bucket reports 46.7% but is actually correct
+63.7% of the time (a 17.0% underconfidence gap). That
+would be a reassuring headline on its own -- but it is not the whole
+picture; see the close-call subset below.
+
+### Reliability restricted to close top-two calls (posterior gap < 10.0%, n=1262)
+
+These are the trials the UI is most likely to present as ambiguous --
+where the leading malrule barely edges out the runner-up.
+
+| Reported posterior bucket | n | Mean reported posterior | Empirical accuracy (95% CI, Wilson) | Gap |
+|---|---|---|---|---|
+| 10.0%-20.0% | 86 | 18.4% | 22.1% (95% CI 14.6%-31.9%, Wilson, n=86) | -3.7% |
+| 20.0%-30.0% | 141 | 25.6% | 26.2% (95% CI 19.7%-34.1%, Wilson, n=141) | -0.7% |
+| 30.0%-40.0% | 249 | 35.6% | 34.1% (95% CI 28.5%-40.2%, Wilson, n=249) | 1.4% |
+| 40.0%-50.0% | 590 | 45.9% | 52.7% (95% CI 48.7%-56.7%, Wilson, n=590) | -6.8% |
+| 50.0%-60.0% | 196 | 52.7% | 10.7% (95% CI 7.1%-15.8%, Wilson, n=196) | 42.0% |
+
+**Expected calibration error on close calls: 10.3%, more than double the aggregate
+figure.** This subset is where the real problem is: the 50.0%-60.0% bucket reports 52.7%
+posterior but is actually correct only 10.7% of the time -- a 42.0%
+overconfidence gap, the opposite direction and roughly 2.5x the
+size of the aggregate table's worst underconfidence gap. **The aggregate reliability numbers actively mask this**: pooling
+across all trials, most of which are NOT close calls, dilutes a severe,
+specific overconfidence problem down to a reassuring-looking overall
+underconfidence trend. Exactly the scenario Experiment J was asked to
+check separately, because it's exactly where the UI is most likely to
+show an ambiguous result to a non-expert as if it were a confident one.
+
+**The UI displays the reported posterior unadjusted** -- `app/DiagnosisApp.tsx`
+shows `r.posterior` directly as a percentage and a proportional bar, with
+no calibration correction applied anywhere in the pipeline. A non-expert
+reading "53% confident" on a close call has no way to know that, in this
+regime specifically, the true hit rate is closer to one in ten.
+
+## 7. Mixed and transitioning students (Experiment K)
+
+Real children often half-transition between strategies rather than
+cleanly switching. This checks what the engine reports when the true
+generative process genuinely is a blend of two known malrules.
+
+Every pair of distinct malrules within a category (co-applicable
+instances only), mixed per-observation at the stated ratio, 5
+observations, 20 trials per (pair, ratio). "Majority component" is
+whichever of the two true generating malrules supplied more than half the
+observations (X at ratio > 0.5, always the intended interpretation of the
+stated ratio here); at exactly 50/50 there is no majority and "X"/"Y" are
+arbitrary category-order labels.
+
+| Mixture ratio | n | Abstained | Tied | Named majority component | Named minority component | Named a THIRD malrule |
+|---|---|---|---|---|---|---|
+| 50/50 | 1020 | 13.5% | 14.9% | 34.9% | 31.7% | 5.0% |
+| 70/30 | 1020 | 10.6% | 10.2% | 61.1% | 12.4% | 5.8% |
+| 90/10 | 1020 | 5.1% | 5.5% | 85.9% | 0.4% | 3.1% |
+
+At 50/50, the engine confidently names ONE of the two true components
+66.6%
+of the time -- more than twice as often as it abstains or ties
+(28.4% combined). That is arguably a defensible
+outcome for a genuine 50/50 blend (it correctly identifies one of the two
+real contributing misconceptions, rather than flagging ambiguity it can't
+resolve further from five observations), but it is a single, confident,
+unhedged malrule name shown to the user -- with no indication that the
+underlying evidence was actually split between two candidates. As the
+mixture skews toward one component (90/10), the engine increasingly names
+the majority component confidently (85.9% of trials), which is
+more clearly correct behavior -- a 90/10 mixture is closer to "mostly
+using one procedure" than a genuine 50/50 blend.
+
+**A third malrule (neither true component) is named confidently in
+5.0% (95% CI 3.8%-6.5%, Wilson, n=1020) of 50/50 trials and
+3.1% (95% CI 2.2%-4.4%, Wilson, n=1020) of 90/10 trials.**
+This is a distinct failure mode from anything in Experiments A or E: not
+just "wrong which known malrule," but wrong in a way that points a
+worksheet author toward a completely unrelated misconception, when the
+truth is closer to two adjacent, already-identified ones.
+
+## 8. Ceiling analysis and error decomposition (Experiment D)
 
 Before the ceiling analysis, here is what MRA itself measures: given one
 worked mistake, infer the malrule, then predict the student's answer on a
@@ -412,13 +924,13 @@ construction -- so this number is really measuring single-example
 identification accuracy, restricted to worked-mistake instances that have a
 valid new-problem partner of the stated kind.
 
-| Pairing | n | MRA accuracy |
+| Pairing | n | MRA accuracy (95% CI, Wilson) |
 |---|---|---|
-| Same-template | 2080 | 93.3% |
-| Cross-template | 1920 | 92.8% |
+| Same-template | 2080 | 93.3% (95% CI 92.1%-94.3%, Wilson, n=2080) |
+| Cross-template | 1920 | 92.8% (95% CI 91.5%-93.8%, Wilson, n=1920) |
 
 (Chance baseline for comparison: pooled 1-of-n guessing over applicable
-candidates is 30.5% -- see Experiment C, section 5, for the
+candidates is 30.5% -- see Experiment C, section 9, for the
 full per-category breakdown.)
 
 ### MRA ceiling: what the 92.8% figure is actually made of
@@ -436,12 +948,12 @@ matters: measured accuracy is *higher* than the floor, because
 fraction of tied trials that arbitrary rule happens to land on the true
 malrule anyway.
 
-| | Value |
+| | Value (95% CI, Wilson, n=1920) |
 |---|---|
-| Floor (guaranteed correct, any tie-break policy) | **79.4%** |
-| Expected under fair (uniform-random) tie-break | **89.6%** |
-| Measured (actual, alphabetical tie-break) -- the reported cross-template MRA figure | **92.8%** |
-| Tied trials | 396/1920 (20.6%) |
+| Floor (guaranteed correct, any tie-break policy) | **79.4% (95% CI 77.5%-81.1%, Wilson, n=1920)** |
+| Expected under fair (uniform-random) tie-break | **89.6%** (not a simple proportion -- partial credit per tied trial, no single Wilson interval applies) |
+| Measured (actual, alphabetical tie-break) -- the reported cross-template MRA figure | **92.8% (95% CI 91.5%-93.8%, Wilson, n=1920)** |
+| Tied trials | 20.6% (95% CI 18.9%-22.5%, Wilson, n=1920) |
 
 **20.6% of MRA cross-template trials are genuinely ambiguous** --
 the single piece of evidence given supports two or more malrules equally,
@@ -478,7 +990,7 @@ the deliberate design choice to not calibrate to an unknown true slip rate
 costs almost nothing in practice, which is a direct empirical test of that
 design decision rather than an assumption.
 
-## 5. Chance baselines and candidate-set scaling (Experiment C)
+## 9. Chance baselines, candidate-set scaling, and the identification-accuracy sweep (Experiment C)
 
 ### Chance baselines
 
@@ -515,29 +1027,29 @@ below.
 
 **Nominal candidate-set size 5, 10, 15, 20, 26 (padded with other-category malrules):**
 
-| Nominal candidate-set size | n | Top-1 accuracy |
+| Nominal candidate-set size | n | Top-1 accuracy (95% CI, Wilson) |
 |---|---|---|
-| 5 | 780 | 92.7% |
-| 10 | 780 | 94.5% |
-| 15 | 780 | 92.9% |
-| 20 | 780 | 93.6% |
-| 26 | 780 | 93.1% |
+| 5 | 780 | 92.7% (95% CI 90.6%-94.3%, Wilson, n=780) |
+| 10 | 780 | 94.5% (95% CI 92.7%-95.9%, Wilson, n=780) |
+| 15 | 780 | 92.9% (95% CI 90.9%-94.5%, Wilson, n=780) |
+| 20 | 780 | 93.6% (95% CI 91.6%-95.1%, Wilson, n=780) |
+| 26 | 780 | 93.1% (95% CI 91.1%-94.7%, Wilson, n=780) |
 
 Accuracy vs. nominal size is flat -- because nominal size is a fiction
 here; none of the padding malrules were ever real competitors.
 
 **Actual applicable candidate count per trial (the real axis):**
 
-| Applicable candidates (actual) | n | Top-1 accuracy |
+| Applicable candidates (actual) | n | Top-1 accuracy (95% CI, Wilson) |
 |---|---|---|
-| 1 | 2 | 100.0% |
-| 2 | 749 | 100.0% |
-| 3 | 356 | 99.2% |
-| 4 | 1062 | 82.1% |
-| 5 | 512 | 89.8% |
-| 6 | 169 | 100.0% |
-| 7 | 694 | 99.1% |
-| 8 | 356 | 97.8% |
+| 1 | 2 | 100.0% (95% CI 34.2%-100.0%, Wilson, n=2) |
+| 2 | 749 | 100.0% (95% CI 99.5%-100.0%, Wilson, n=749) |
+| 3 | 356 | 99.2% (95% CI 97.6%-99.7%, Wilson, n=356) |
+| 4 | 1062 | 82.1% (95% CI 79.7%-84.3%, Wilson, n=1062) |
+| 5 | 512 | 89.8% (95% CI 86.9%-92.2%, Wilson, n=512) |
+| 6 | 169 | 100.0% (95% CI 97.8%-100.0%, Wilson, n=169) |
+| 7 | 694 | 99.1% (95% CI 98.1%-99.6%, Wilson, n=694) |
+| 8 | 356 | 97.8% (95% CI 95.6%-98.9%, Wilson, n=356) |
 
 **The maximum applicable candidate count observed across every trial, at
 any nominal target, was 8** -- exactly the library's largest single
@@ -555,18 +1067,18 @@ Read every figure below against the chance baselines above, not against
 100%. 0% injected slip, 40 trials per malrule per observation count,
 model slip rate 0.15.
 
-| Observations | n | Top-1 | Top-1-or-tied | Top-3 |
+| Observations | n | Top-1 (95% CI, Wilson) | Top-1-or-tied | Top-3 (95% CI, Wilson) |
 |---|---|---|---|---|
-| 1 | 1040 | 87.5% | 100.0% | 98.6% |
-| 2 | 1040 | 89.4% | 94.8% | 99.4% |
-| 3 | 1040 | 92.6% | 94.5% | 100.0% |
-| 4 | 1040 | 93.1% | 94.2% | 100.0% |
-| 5 | 1040 | 93.1% | 93.9% | 100.0% |
-| 6 | 1040 | 92.5% | 92.9% | 100.0% |
-| 7 | 1040 | 93.2% | 93.2% | 100.0% |
-| 8 | 1040 | 93.2% | 93.2% | 100.0% |
-| 9 | 1040 | 92.9% | 93.0% | 100.0% |
-| 10 | 1040 | 92.3% | 92.3% | 100.0% |
+| 1 | 1040 | 87.5% (95% CI 85.4%-89.4%, Wilson, n=1040) | 100.0% | 98.6% (95% CI 97.6%-99.1%, Wilson, n=1040) |
+| 2 | 1040 | 89.4% (95% CI 87.4%-91.1%, Wilson, n=1040) | 94.8% | 99.4% (95% CI 98.7%-99.7%, Wilson, n=1040) |
+| 3 | 1040 | 92.6% (95% CI 90.8%-94.0%, Wilson, n=1040) | 94.5% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 4 | 1040 | 93.1% (95% CI 91.4%-94.5%, Wilson, n=1040) | 94.2% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 5 | 1040 | 93.1% (95% CI 91.4%-94.5%, Wilson, n=1040) | 93.9% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 6 | 1040 | 92.5% (95% CI 90.7%-93.9%, Wilson, n=1040) | 92.9% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 7 | 1040 | 93.2% (95% CI 91.5%-94.6%, Wilson, n=1040) | 93.2% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 8 | 1040 | 93.2% (95% CI 91.5%-94.6%, Wilson, n=1040) | 93.2% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 9 | 1040 | 92.9% (95% CI 91.2%-94.3%, Wilson, n=1040) | 93.0% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 10 | 1040 | 92.3% (95% CI 90.5%-93.8%, Wilson, n=1040) | 92.3% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
 
 ### (b) Identification accuracy vs. number of observations, by injected slip rate
 
@@ -577,50 +1089,50 @@ true rate -- see Experiment D for what that assumption costs).
 
 **Injected slip rate: 5%**
 
-| Observations | n | Top-1 | Top-1-or-tied | Top-3 |
+| Observations | n | Top-1 (95% CI, Wilson) | Top-1-or-tied | Top-3 (95% CI, Wilson) |
 |---|---|---|---|---|
-| 1 | 1040 | 82.7% | 96.8% | 96.9% |
-| 2 | 1040 | 85.9% | 92.5% | 99.2% |
-| 3 | 1040 | 88.1% | 91.1% | 99.2% |
-| 4 | 1040 | 87.1% | 88.8% | 99.6% |
-| 5 | 1040 | 87.0% | 87.4% | 99.9% |
-| 6 | 1040 | 86.3% | 86.9% | 100.0% |
-| 7 | 1040 | 86.3% | 86.3% | 100.0% |
-| 8 | 1040 | 84.5% | 84.6% | 99.8% |
-| 9 | 1040 | 85.0% | 85.0% | 99.8% |
-| 10 | 1040 | 83.8% | 83.8% | 99.8% |
+| 1 | 1040 | 82.7% (95% CI 80.3%-84.9%, Wilson, n=1040) | 96.8% | 96.9% (95% CI 95.7%-97.8%, Wilson, n=1040) |
+| 2 | 1040 | 85.9% (95% CI 83.6%-87.9%, Wilson, n=1040) | 92.5% | 99.2% (95% CI 98.5%-99.6%, Wilson, n=1040) |
+| 3 | 1040 | 88.1% (95% CI 86.0%-89.9%, Wilson, n=1040) | 91.1% | 99.2% (95% CI 98.5%-99.6%, Wilson, n=1040) |
+| 4 | 1040 | 87.1% (95% CI 84.9%-89.0%, Wilson, n=1040) | 88.8% | 99.6% (95% CI 99.0%-99.9%, Wilson, n=1040) |
+| 5 | 1040 | 87.0% (95% CI 84.8%-88.9%, Wilson, n=1040) | 87.4% | 99.9% (95% CI 99.5%-100.0%, Wilson, n=1040) |
+| 6 | 1040 | 86.3% (95% CI 84.1%-88.3%, Wilson, n=1040) | 86.9% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 7 | 1040 | 86.3% (95% CI 84.1%-88.3%, Wilson, n=1040) | 86.3% | 100.0% (95% CI 99.6%-100.0%, Wilson, n=1040) |
+| 8 | 1040 | 84.5% (95% CI 82.2%-86.6%, Wilson, n=1040) | 84.6% | 99.8% (95% CI 99.3%-99.9%, Wilson, n=1040) |
+| 9 | 1040 | 85.0% (95% CI 82.7%-87.0%, Wilson, n=1040) | 85.0% | 99.8% (95% CI 99.3%-99.9%, Wilson, n=1040) |
+| 10 | 1040 | 83.8% (95% CI 81.5%-86.0%, Wilson, n=1040) | 83.8% | 99.8% (95% CI 99.3%-99.9%, Wilson, n=1040) |
 
 **Injected slip rate: 10%**
 
-| Observations | n | Top-1 | Top-1-or-tied | Top-3 |
+| Observations | n | Top-1 (95% CI, Wilson) | Top-1-or-tied | Top-3 (95% CI, Wilson) |
 |---|---|---|---|---|
-| 1 | 1040 | 81.7% | 93.8% | 96.3% |
-| 2 | 1040 | 78.7% | 87.9% | 96.0% |
-| 3 | 1040 | 82.7% | 86.0% | 98.6% |
-| 4 | 1040 | 82.3% | 84.2% | 98.7% |
-| 5 | 1040 | 82.6% | 83.0% | 99.0% |
-| 6 | 1040 | 81.6% | 82.5% | 99.1% |
-| 7 | 1040 | 78.8% | 79.1% | 99.6% |
-| 8 | 1040 | 77.8% | 78.0% | 99.6% |
-| 9 | 1040 | 77.5% | 77.6% | 98.8% |
-| 10 | 1040 | 78.1% | 78.2% | 99.4% |
+| 1 | 1040 | 81.7% (95% CI 79.3%-84.0%, Wilson, n=1040) | 93.8% | 96.3% (95% CI 94.9%-97.2%, Wilson, n=1040) |
+| 2 | 1040 | 78.7% (95% CI 76.1%-81.0%, Wilson, n=1040) | 87.9% | 96.0% (95% CI 94.6%-97.0%, Wilson, n=1040) |
+| 3 | 1040 | 82.7% (95% CI 80.3%-84.9%, Wilson, n=1040) | 86.0% | 98.6% (95% CI 97.6%-99.1%, Wilson, n=1040) |
+| 4 | 1040 | 82.3% (95% CI 79.9%-84.5%, Wilson, n=1040) | 84.2% | 98.7% (95% CI 97.8%-99.2%, Wilson, n=1040) |
+| 5 | 1040 | 82.6% (95% CI 80.2%-84.8%, Wilson, n=1040) | 83.0% | 99.0% (95% CI 98.2%-99.5%, Wilson, n=1040) |
+| 6 | 1040 | 81.6% (95% CI 79.2%-83.9%, Wilson, n=1040) | 82.5% | 99.1% (95% CI 98.4%-99.5%, Wilson, n=1040) |
+| 7 | 1040 | 78.8% (95% CI 76.3%-81.2%, Wilson, n=1040) | 79.1% | 99.6% (95% CI 99.0%-99.9%, Wilson, n=1040) |
+| 8 | 1040 | 77.8% (95% CI 75.2%-80.2%, Wilson, n=1040) | 78.0% | 99.6% (95% CI 99.0%-99.9%, Wilson, n=1040) |
+| 9 | 1040 | 77.5% (95% CI 74.9%-79.9%, Wilson, n=1040) | 77.6% | 98.8% (95% CI 97.9%-99.3%, Wilson, n=1040) |
+| 10 | 1040 | 78.1% (95% CI 75.5%-80.5%, Wilson, n=1040) | 78.2% | 99.4% (95% CI 98.7%-99.7%, Wilson, n=1040) |
 
 **Injected slip rate: 20%**
 
-| Observations | n | Top-1 | Top-1-or-tied | Top-3 |
+| Observations | n | Top-1 (95% CI, Wilson) | Top-1-or-tied | Top-3 (95% CI, Wilson) |
 |---|---|---|---|---|
-| 1 | 1040 | 70.6% | 85.8% | 93.4% |
-| 2 | 1040 | 69.8% | 83.9% | 95.0% |
-| 3 | 1040 | 71.3% | 77.1% | 95.5% |
-| 4 | 1040 | 70.9% | 75.1% | 96.4% |
-| 5 | 1040 | 71.4% | 73.1% | 97.9% |
-| 6 | 1040 | 70.3% | 71.2% | 98.1% |
-| 7 | 1040 | 70.7% | 71.1% | 98.0% |
-| 8 | 1040 | 67.2% | 67.4% | 98.0% |
-| 9 | 1040 | 66.0% | 66.3% | 98.0% |
-| 10 | 1040 | 64.6% | 65.0% | 98.5% |
+| 1 | 1040 | 70.6% (95% CI 67.7%-73.3%, Wilson, n=1040) | 85.8% | 93.4% (95% CI 91.7%-94.7%, Wilson, n=1040) |
+| 2 | 1040 | 69.8% (95% CI 66.9%-72.5%, Wilson, n=1040) | 83.9% | 95.0% (95% CI 93.5%-96.2%, Wilson, n=1040) |
+| 3 | 1040 | 71.3% (95% CI 68.4%-73.9%, Wilson, n=1040) | 77.1% | 95.5% (95% CI 94.0%-96.6%, Wilson, n=1040) |
+| 4 | 1040 | 70.9% (95% CI 68.0%-73.5%, Wilson, n=1040) | 75.1% | 96.4% (95% CI 95.1%-97.4%, Wilson, n=1040) |
+| 5 | 1040 | 71.4% (95% CI 68.6%-74.1%, Wilson, n=1040) | 73.1% | 97.9% (95% CI 96.8%-98.6%, Wilson, n=1040) |
+| 6 | 1040 | 70.3% (95% CI 67.4%-73.0%, Wilson, n=1040) | 71.2% | 98.1% (95% CI 97.0%-98.8%, Wilson, n=1040) |
+| 7 | 1040 | 70.7% (95% CI 67.8%-73.4%, Wilson, n=1040) | 71.1% | 98.0% (95% CI 96.9%-98.7%, Wilson, n=1040) |
+| 8 | 1040 | 67.2% (95% CI 64.3%-70.0%, Wilson, n=1040) | 67.4% | 98.0% (95% CI 96.9%-98.7%, Wilson, n=1040) |
+| 9 | 1040 | 66.0% (95% CI 63.0%-68.8%, Wilson, n=1040) | 66.3% | 98.0% (95% CI 96.9%-98.7%, Wilson, n=1040) |
+| 10 | 1040 | 64.6% (95% CI 61.7%-67.5%, Wilson, n=1040) | 65.0% | 98.5% (95% CI 97.5%-99.1%, Wilson, n=1040) |
 
-## 6. Adaptive vs. random problem selection
+## 10. Adaptive vs. random problem selection
 
 Re-runs measurement (a)'s protocol, but instead of asking a fixed number of
 random observations, each strategy is run to **convergence**: keep asking
@@ -642,7 +1154,14 @@ comparison isn't confounded by which problems happen to be available.
 
 Adaptive selection needed **0.40 fewer observations on average** (28.3% reduction) to reach a unique, correct diagnosis, and converged in 96.2% of runs vs. 95.8% for random selection within the 15-observation cap.
 
-## 7. On comparison to the paper's LLM baseline
+*(The paragraph and table above are preserved verbatim from the prior
+evaluation round, per that round's explicit requirement. This note is
+additive, not a change to that text: convergence-rate intervals are
+96.2% (95% CI 94.1%-97.5%, Wilson, n=520) (adaptive) and
+95.8% (95% CI 93.7%-97.2%, Wilson, n=520) (random) -- both comfortably high and overlapping, consistent with
+the "not a large effect" framing above.)*
+
+## 11. On comparison to the paper's LLM baseline
 
 **The numbers in this document are not comparable to the paper's reported
 LLM accuracy, and the MRA figures above should not be read as this engine
@@ -652,20 +1171,23 @@ The paper's task is open-world: given one worked example, an LLM must
 infer an *unseen* procedure -- one it was never told the identity or even
 the existence of -- in natural language, and then re-execute that inferred
 procedure correctly on a new problem, with no guarantee the true procedure
-is describable at all, let alone a member of any enumerated list.
+is describable at all, let alone a member of any enumerated list, or even
+that the student is running a systematic procedure at all.
 
-This engine does neither of those things. It selects from a pre-enumerated
+This engine does none of those things. It selects from a pre-enumerated
 candidate set of 26 malrules that is known in advance, over
 category-scoped candidate pools of only 5-8 members (Experiment C).
-Critically, in every measurement above except Experiment A, **the true
-malrule is a member of the candidate set by construction** -- the
-diagnosis problem is "which of these known options produced this data,"
-not "what is this data" in any open sense. Experiment A is the one place
-in this document where the true procedure is *not* available as an
-option, and it is the closest analogue to the paper's actual difficulty --
-its answer (misattribution rate of 28.1% at the shipped default) is a far more honest measure of how this
-system behaves outside the assumption that the true procedure is in the
-library than the 92.8% MRA figure is.
+Critically, in every measurement above except Experiments A, E, G, and H,
+**the true malrule is a member of the candidate set by construction** --
+the diagnosis problem is "which of these known options produced this
+data," not "what is this data" in any open sense. Sections 2 and 3 are the
+closest analogue to the paper's actual difficulty, and are far more honest
+measures of how this system behaves outside the assumption that the true
+procedure is known in advance than the 92.8% MRA figure is: a
+28.1% misattribution rate on genuinely novel procedures (Experiment A, direction of
+bias unresolved -- Experiment H), and a false-positive rate on students
+running no procedure at all that is much worse than its pooled figure
+suggests in at least one category (Experiment E: ~50% in subtraction).
 
 Read the 92.8%/93.3% MRA figures as: "given that the true procedure is
 known to be one of a handful of pre-enumerated options, how often does
