@@ -1,12 +1,13 @@
-// Phase 3 evaluation harness. Runs entirely against the committed index
+// Evaluation harness. Runs entirely against the committed index
 // (data/index/*.json) through the same diagnose() engine used by the app --
 // no separate "evaluation copy" of the scoring logic. Run with:
 //
 //   npm run evaluate
 //
-// Writes EVALUATION.md at the project root. Deterministic: every simulated
-// trial is seeded from a hash of its own parameters, so re-running produces
-// identical numbers.
+// Writes EVALUATION.md and data/indistinguishability.json at the project
+// root. Deterministic: every simulated trial is seeded from a hash of its
+// own parameters, so re-running produces identical numbers. No MalruleLib
+// clone required -- everything here reads only the committed index.
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -16,93 +17,36 @@ import { diagnose } from "../lib/diagnose/diagnose.ts";
 import { hashString, mulberry32, shuffle, simulateObservations } from "../lib/diagnose/testSupport.ts";
 import type { CategoryIndex, MalruleMeta, ProblemInstance } from "../lib/diagnose/types.ts";
 import { posteriorFromScores, selectNextInstance, uniformPosterior } from "../lib/select/select.ts";
-
-import subtraction from "../data/index/subtraction.json" with { type: "json" };
-import fractions from "../data/index/fractions.json" with { type: "json" };
-import decimals from "../data/index/decimals.json" with { type: "json" };
-import multiplicationDivision from "../data/index/multiplication_division.json" with { type: "json" };
+import { CATEGORIES, MODEL_SLIP_RATE, pct } from "./lib/data.mts";
+import { runSweep, OBS_COUNTS, INJECTED_SLIP_RATES, TRIALS_PER_COMBO, type SweepCell } from "./lib/sweep.mts";
+import {
+  runSweep as runExperimentASweep,
+  runPerMalruleBreakdown as runExperimentABreakdown,
+  renderMarkdown as renderExperimentA,
+} from "./lib/experimentA.mts";
+import { runExperimentB, renderMarkdown as renderExperimentB } from "./lib/experimentB.mts";
+import {
+  computeChanceBaselines,
+  pooledChanceBaseline,
+  runCandidateScaling,
+  renderMarkdown as renderExperimentC,
+} from "./lib/experimentC.mts";
+import { runMraCeiling, runSlipRateCeiling, renderMarkdown as renderExperimentD } from "./lib/experimentD.mts";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-const CATEGORIES: CategoryIndex[] = [
-  subtraction as unknown as CategoryIndex,
-  fractions as unknown as CategoryIndex,
-  decimals as unknown as CategoryIndex,
-  multiplicationDivision as unknown as CategoryIndex,
-];
-
-// The diagnosis engine's assumed noise level. Held FIXED across every
-// measurement below, deliberately independent of the *true* injected slip
-// rate in (b) -- a real deployment doesn't get to know a child's true slip
-// rate in advance, so this tests robustness to that mismatch rather than
-// reporting an oracle best case.
-const MODEL_SLIP_RATE = 0.15;
-
-const OBS_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-const INJECTED_SLIP_RATES = [0, 0.05, 0.1, 0.2];
-const TRIALS_PER_COMBO = 40;
-
 // ---------------------------------------------------------------------------
-// (a) + (b): identification accuracy vs. observation count, vs. slip rate
-// ---------------------------------------------------------------------------
-
-interface SweepCell {
-  obsCount: number;
-  injectedSlipRate: number;
-  n: number;
-  top1: number;
-  top1OrTied: number;
-  top3: number;
-}
-
-function runSweep(): SweepCell[] {
-  const cells: SweepCell[] = [];
-  for (const injectedSlipRate of INJECTED_SLIP_RATES) {
-    for (const obsCount of OBS_COUNTS) {
-      let n = 0;
-      let top1 = 0;
-      let top1OrTied = 0;
-      let top3 = 0;
-      for (const cat of CATEGORIES) {
-        for (const mr of cat.malrules) {
-          for (let trial = 0; trial < TRIALS_PER_COMBO; trial++) {
-            const seed = hashString(`${mr.id}:${obsCount}:${injectedSlipRate}:${trial}`);
-            const rng = mulberry32(seed);
-            const obs = simulateObservations(mr.id, cat.instances, obsCount, injectedSlipRate, rng);
-            if (obs.length < obsCount) continue; // not enough applicable instances for this malrule
-            const result = diagnose(obs, cat.instances, cat.malrules, MODEL_SLIP_RATE);
-            n += 1;
-            const top = result.ranked[0];
-            if (top?.malruleId === mr.id) top1 += 1;
-            if (result.tiedTop.includes(mr.id)) top1OrTied += 1;
-            if (result.ranked.slice(0, 3).some((r) => r.malruleId === mr.id)) top3 += 1;
-          }
-        }
-      }
-      cells.push({
-        obsCount,
-        injectedSlipRate,
-        n,
-        top1: top1 / n,
-        top1OrTied: top1OrTied / n,
-        top3: top3 / n,
-      });
-    }
-  }
-  return cells;
-}
-
-// ---------------------------------------------------------------------------
-// (c) Malrule Reasoning Accuracy (MRA): infer the malrule from ONE worked
+// Malrule Reasoning Accuracy (MRA): infer the malrule from ONE worked
 // mistake, then predict the student's answer on a new problem. Because this
 // engine predicts by *executing* the diagnosed malrule rather than guessing,
 // "predict correctly on the new problem" collapses to "the new problem is
 // one the malrule can run on, and the malrule was correctly identified" --
-// see the caveat printed in EVALUATION.md. We therefore measure, for every
-// worked-mistake instance A, whether a valid new-problem partner B exists in
-// the same template (same-template pair) or a different template
-// (cross-template pair), and whether the single-observation diagnosis from A
-// alone lands on the true malrule.
+// see the ceiling analysis (Experiment D) for what that collapse actually
+// means for the headline figure. We measure, for every worked-mistake
+// instance A, whether a valid new-problem partner B exists in the same
+// template (same-template pair) or a different template (cross-template
+// pair), and whether the single-observation diagnosis from A alone lands on
+// the true malrule.
 // ---------------------------------------------------------------------------
 
 interface MraResult {
@@ -154,60 +98,7 @@ function runMra(): MraResult[] {
 }
 
 // ---------------------------------------------------------------------------
-// (d) Ambiguity analysis: malrule pairs whose predicted answers agree on
-// EVERY instance of a given template (>=3 instances where both applied),
-// i.e. no amount of observation on that template alone can tell them apart.
-// ---------------------------------------------------------------------------
-
-interface AmbiguousPair {
-  category: string;
-  template: string;
-  malruleA: string;
-  malruleB: string;
-  nCompared: number;
-}
-
-const MIN_INSTANCES_TO_JUDGE = 3;
-
-function runAmbiguityAnalysis(): AmbiguousPair[] {
-  const pairs: AmbiguousPair[] = [];
-
-  for (const cat of CATEGORIES) {
-    const byTemplate = new Map<string, ProblemInstance[]>();
-    for (const inst of cat.instances) {
-      const list = byTemplate.get(inst.template) ?? [];
-      list.push(inst);
-      byTemplate.set(inst.template, list);
-    }
-
-    const ids = cat.malrules.map((m) => m.id);
-    for (const [template, insts] of byTemplate) {
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          const a = ids[i]!;
-          const b = ids[j]!;
-          let compared = 0;
-          let agree = 0;
-          for (const inst of insts) {
-            const pa = inst.predictions[a];
-            const pb = inst.predictions[b];
-            if (pa === undefined || pb === undefined) continue;
-            compared += 1;
-            if (pa === pb) agree += 1;
-          }
-          if (compared >= MIN_INSTANCES_TO_JUDGE && agree === compared) {
-            pairs.push({ category: cat.category, template, malruleA: a, malruleB: b, nCompared: compared });
-          }
-        }
-      }
-    }
-  }
-
-  return pairs;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 4: adaptive vs. random problem selection. For a fixed true malrule,
+// Adaptive vs. random problem selection. For a fixed true malrule,
 // repeatedly pick a next problem (either the highest expected-entropy-
 // reduction candidate, or a uniformly random one), observe the clean
 // (0% slip) answer it produces, update the posterior, and stop once the
@@ -309,12 +200,9 @@ function runAdaptiveComparison(): StrategySummary[] {
 }
 
 // ---------------------------------------------------------------------------
-// Markdown rendering
+// Markdown rendering for the sections that remain in this file (the (a)/(b)
+// sweep tables and the Phase 4 adaptive-selection section, unchanged).
 // ---------------------------------------------------------------------------
-
-function pct(x: number): string {
-  return `${(x * 100).toFixed(1)}%`;
-}
 
 function renderSweepTable(cells: SweepCell[], injectedSlipRate: number): string {
   const rows = cells.filter((c) => c.injectedSlipRate === injectedSlipRate);
@@ -325,125 +213,134 @@ function renderSweepTable(cells: SweepCell[], injectedSlipRate: number): string 
   return `${header}\n${body}`;
 }
 
-function renderAmbiguityByCategory(pairs: AmbiguousPair[]): string {
-  const byCategory = new Map<string, AmbiguousPair[]>();
-  for (const p of pairs) {
-    const list = byCategory.get(p.category) ?? [];
-    list.push(p);
-    byCategory.set(p.category, list);
-  }
-  const sections: string[] = [];
-  for (const [category, list] of byCategory) {
-    const header = `**${category}** (${list.length} indistinguishable template-level pairs)\n\n| Template | Malrule A | Malrule B | Instances compared |\n|---|---|---|---|`;
-    const body = list
-      .sort((a, b) => a.template.localeCompare(b.template) || a.malruleA.localeCompare(b.malruleA))
-      .map((p) => `| ${p.template} | ${p.malruleA} | ${p.malruleB} | ${p.nCompared} |`)
-      .join("\n");
-    sections.push(`${header}\n${body}`);
-  }
-  return sections.length > 0 ? sections.join("\n\n") : "_No fully indistinguishable pairs found at the current sample threshold._";
-}
-
 function main() {
-  console.log("Running (a)+(b) identification sweep...");
+  console.log("Running identification accuracy sweep...");
   const sweep = runSweep();
 
-  console.log("Running (c) MRA task...");
+  console.log("Running MRA measurement...");
   const mra = runMra();
+  const sameTemplate = mra.find((m) => m.pairing === "same-template")!;
+  const crossTemplate = mra.find((m) => m.pairing === "cross-template")!;
 
-  console.log("Running (d) ambiguity analysis...");
-  const ambiguous = runAmbiguityAnalysis();
-
-  console.log("Running Phase 4 adaptive vs. random selection comparison...");
+  console.log("Running adaptive vs. random selection comparison...");
   const adaptiveComparison = runAdaptiveComparison();
+
+  console.log("Running Experiment A (open-world misattribution, leave-one-out)...");
+  const expASweep = runExperimentASweep();
+  const expABreakdown = runExperimentABreakdown();
+  const totalMalruleCount = CATEGORIES.reduce((s, c) => s + c.malrules.length, 0);
+
+  console.log("Running Experiment B (indistinguishability, properly characterized)...");
+  const expB = runExperimentB();
+
+  console.log("Running Experiment C (chance baselines and candidate-set scaling)...");
+  const chanceBaselines = computeChanceBaselines();
+  const pooledChance = pooledChanceBaseline(chanceBaselines);
+  const scalingTrials = runCandidateScaling();
+
+  console.log("Running Experiment D (ceiling analysis and error decomposition)...");
+  const mraCeiling = runMraCeiling();
+  const slipDecomposition = runSlipRateCeiling();
 
   const totalMalrules = CATEGORIES.reduce((s, c) => s + c.malrules.length, 0);
   const totalInstances = CATEGORIES.reduce((s, c) => s + c.instances.length, 0);
 
-  const sameTemplate = mra.find((m) => m.pairing === "same-template")!;
-  const crossTemplate = mra.find((m) => m.pairing === "cross-template")!;
-
   const md = `# Evaluation
 
-All numbers below are computed against MalruleLib-generated synthetic data
-only (\`data/index/\`), covering the v1 scope: ${totalMalrules} malrules across
-subtraction, fractions, decimals, and multiplication/division
-(${totalInstances} problem instances). **This is an upper bound.** Real
-children's work is noisier than any slip-rate model here can fully capture --
-see the README for the classroom-validity caveat.
+## 1. What was measured, and on what data
 
-The diagnosis engine's assumed noise parameter (\`slipRate\`) was held fixed at
-**${MODEL_SLIP_RATE}** for every measurement below, including when the *true*
-injected slip rate in (b) differs from it. This deliberately tests robustness
-to not knowing a real child's slip rate in advance, rather than reporting an
-oracle best case.
+**Every number below is computed against MalruleLib-generated synthetic
+data only** (\`data/index/\`) -- nothing here has been run against a real
+child. That is stated first, not last, because it bounds how every other
+claim in this document should be read: these are upper bounds on a system
+tested against data generated by the same executable procedures it is
+trying to identify. Real children's work is noisier, messier, and includes
+procedures that were never in this or any library. See the README for the
+classroom-validity caveat.
+
+Scope: ${totalMalrules} malrules across subtraction, fractions, decimals, and
+multiplication/division (${totalInstances} problem instances). The diagnosis
+engine's assumed noise parameter (\`slipRate\`) is held fixed at
+**${MODEL_SLIP_RATE}** for every measurement below unless stated otherwise --
+including when the *true* injected slip rate differs from it, and including
+in Experiment D's oracle comparison, which exists specifically to quantify
+what that fixed assumption costs.
 
 **Malrule identification accuracy and Malrule Reasoning Accuracy (MRA) are
-different metrics.** Identification accuracy (a, b) asks only "did the
-correct malrule rank first (or in the top 3)?" MRA (c) is the paper's task:
-infer the malrule from one example, then predict the student's answer on a
-*different* problem. Only (c) is a like-for-like comparison with the paper's
-published LLM baselines (40.5% cross-template answer-only, 46.5% with step
-traces).
+different metrics.** Identification accuracy asks only "did the correct
+malrule rank first (or in the top 3)?" MRA is the paper's task: infer the
+malrule from one example, then predict the student's answer on a
+*different* problem. Section 7 below states plainly why even MRA is not a
+like-for-like comparison with the paper's published LLM baselines (40.5%
+cross-template answer-only, 46.5% with step traces) -- read it before
+treating any number here as a claim of beating that baseline.
 
-## (a) Identification accuracy vs. number of observations (clean data)
+This document is organized around what the four experiments below actually
+found, not around the order they were built in. The headline finding is
+Experiment B, not the MRA percentage.
 
-0% injected slip, ${TRIALS_PER_COMBO} trials per malrule per observation count,
+## 2. Indistinguishability (Experiment B) -- the headline finding
+
+${renderExperimentB(expB)}
+
+## 3. Open-world misattribution (Experiment A)
+
+${renderExperimentA(expASweep, expABreakdown, totalMalruleCount)}
+
+## 4. Ceiling analysis and error decomposition (Experiment D)
+
+Before the ceiling analysis, here is what MRA itself measures: given one
+worked mistake, infer the malrule, then predict the student's answer on a
+different problem. Because this engine predicts by directly executing the
+diagnosed malrule rather than guessing, a correct diagnosis on an
+applicable new problem guarantees a correct answer prediction by
+construction -- so this number is really measuring single-example
+identification accuracy, restricted to worked-mistake instances that have a
+valid new-problem partner of the stated kind.
+
+| Pairing | n | MRA accuracy |
+|---|---|---|
+| Same-template | ${sameTemplate.n} | ${pct(sameTemplate.top1)} |
+| Cross-template | ${crossTemplate.n} | ${pct(crossTemplate.top1)} |
+
+(Chance baseline for comparison: pooled 1-of-n guessing over applicable
+candidates is ${pct(pooledChance.chanceTop1)} -- see Experiment C, section 5, for the
+full per-category breakdown.)
+
+${renderExperimentD(mraCeiling, slipDecomposition)}
+
+## 5. Chance baselines and candidate-set scaling (Experiment C)
+
+${renderExperimentC(chanceBaselines, pooledChance, scalingTrials)}
+
+### (a) Identification accuracy vs. number of observations (clean data)
+
+Read every figure below against the chance baselines above, not against
+100%. 0% injected slip, ${TRIALS_PER_COMBO} trials per malrule per observation count,
 model slip rate ${MODEL_SLIP_RATE}.
 
 ${renderSweepTable(sweep, 0)}
 
-## (b) Identification accuracy vs. number of observations, by injected slip rate
+### (b) Identification accuracy vs. number of observations, by injected slip rate
 
-Each table uses the same trial protocol as (a) but with random slips injected
-into the simulated student's answers at the stated rate (the model still
-assumes slip rate ${MODEL_SLIP_RATE} throughout, regardless of the true rate).
+Each table uses the same trial protocol as (a) but with random slips
+injected into the simulated student's answers at the stated rate (the
+model still assumes slip rate ${MODEL_SLIP_RATE} throughout, regardless of the
+true rate -- see Experiment D for what that assumption costs).
 
-### Injected slip rate: 5%
+**Injected slip rate: 5%**
 
 ${renderSweepTable(sweep, 0.05)}
 
-### Injected slip rate: 10%
+**Injected slip rate: 10%**
 
 ${renderSweepTable(sweep, 0.1)}
 
-### Injected slip rate: 20%
+**Injected slip rate: 20%**
 
 ${renderSweepTable(sweep, 0.2)}
 
-## (c) Malrule Reasoning Accuracy (MRA) -- comparable to the paper
-
-Task: given one worked mistake on problem A (no injected noise -- a clean
-example of the malrule), infer the malrule, then predict the student's answer
-on a different problem B. Because this engine predicts by directly executing
-the diagnosed malrule rather than guessing, a correct diagnosis on an
-applicable B guarantees a correct answer prediction by construction -- so
-this number is really measuring single-example identification accuracy,
-restricted to worked-mistake instances that have a valid new-problem partner
-of the stated kind. That collapse (identification-correct implies
-answer-correct) is the central mechanical difference from the LLM setting,
-where naming a misconception correctly does not guarantee simulating it
-correctly on a new problem -- and is a large part of why a deterministic
-engine can be expected to outperform a model doing both steps by inference.
-
-| Pairing | n | MRA accuracy | Paper baseline (answer-only / with steps) |
-|---|---|---|---|
-| Same-template | ${sameTemplate.n} | ${pct(sameTemplate.top1)} | n/a (paper reports cross-template only) |
-| Cross-template | ${crossTemplate.n} | ${pct(crossTemplate.top1)} | 40.5% / 46.5% |
-
-## (d) Ambiguity analysis
-
-Malrule pairs whose predicted answers agree on **every** instance of a given
-template (minimum ${MIN_INSTANCES_TO_JUDGE} instances compared) -- meaning no
-amount of observation restricted to that single template can ever tell them
-apart. This is a structural property of MalruleLib's problem generators, not
-a limitation of the scoring engine: on these templates, only a
-differently-shaped problem (the adaptive selector's job -- see Phase 4) can
-break the tie.
-
-${renderAmbiguityByCategory(ambiguous)}
-
-## Phase 4: adaptive vs. random problem selection
+## 6. Adaptive vs. random problem selection
 
 Re-runs measurement (a)'s protocol, but instead of asking a fixed number of
 random observations, each strategy is run to **convergence**: keep asking
@@ -474,17 +371,65 @@ ${(() => {
   const relative = (delta / random.meanObservationsAmongConverged) * 100;
   return `Adaptive selection needed **${delta.toFixed(2)} fewer observations on average** (${relative.toFixed(1)}% reduction) to reach a unique, correct diagnosis, and converged in ${pct(adaptive.convergedCount / adaptive.n)} of runs vs. ${pct(random.convergedCount / random.n)} for random selection within the ${MAX_OBSERVATIONS}-observation cap.`;
 })()}
+
+## 7. On comparison to the paper's LLM baseline
+
+**The numbers in this document are not comparable to the paper's reported
+LLM accuracy, and the MRA figures above should not be read as this engine
+outperforming that baseline.**
+
+The paper's task is open-world: given one worked example, an LLM must
+infer an *unseen* procedure -- one it was never told the identity or even
+the existence of -- in natural language, and then re-execute that inferred
+procedure correctly on a new problem, with no guarantee the true procedure
+is describable at all, let alone a member of any enumerated list.
+
+This engine does neither of those things. It selects from a pre-enumerated
+candidate set of ${totalMalruleCount} malrules that is known in advance, over
+category-scoped candidate pools of only 5-8 members (Experiment C).
+Critically, in every measurement above except Experiment A, **the true
+malrule is a member of the candidate set by construction** -- the
+diagnosis problem is "which of these known options produced this data,"
+not "what is this data" in any open sense. Experiment A is the one place
+in this document where the true procedure is *not* available as an
+option, and it is the closest analogue to the paper's actual difficulty --
+its answer (misattribution rate of ${pct(
+    expASweep.find((p) => p.threshold === 1 && p.slipRate === 0 && p.obsCount === 5)!.heldOutMisattributionRate
+  )} at the shipped default) is a far more honest measure of how this
+system behaves outside the assumption that the true procedure is in the
+library than the 92.8% MRA figure is.
+
+Read the 92.8%/93.3% MRA figures as: "given that the true procedure is
+known to be one of a handful of pre-enumerated options, how often does
+directly executing candidates and comparing outputs pick the right one." That is a real, useful, different question from the one the paper's LLM
+baseline answers, not a harder version of the same question solved better.
 `;
 
   const outPath = path.join(ROOT, "EVALUATION.md");
   writeFileSync(outPath, md);
   console.log(`\nWrote ${outPath}`);
-  console.log(`(a) clean top-1 @5 obs: ${pct(sweep.find((c) => c.injectedSlipRate === 0 && c.obsCount === 5)!.top1)}`);
-  console.log(`(c) MRA cross-template: ${pct(crossTemplate.top1)} (n=${crossTemplate.n}); paper baseline 40.5%/46.5%`);
-  console.log(`(d) indistinguishable pairs found: ${ambiguous.length}`);
+
+  const indistinguishabilityPath = path.join(ROOT, "data", "indistinguishability.json");
+  writeFileSync(indistinguishabilityPath, JSON.stringify(expB, null, 2));
+  console.log(`Wrote ${indistinguishabilityPath}`);
+
+  console.log(`\n(a) clean top-1 @5 obs: ${pct(sweep.find((c) => c.injectedSlipRate === 0 && c.obsCount === 5)!.top1)}`);
+  console.log(`(c) MRA cross-template: ${pct(crossTemplate.top1)} (n=${crossTemplate.n})`);
+  console.log(
+    `(Experiment A) default misattribution rate: ${pct(
+      expASweep.find((p) => p.threshold === 1 && p.slipRate === 0 && p.obsCount === 5)!.heldOutMisattributionRate
+    )}`
+  );
+  console.log(
+    `(Experiment B) fully indistinguishable pairs: ${expB.pairs.filter((p) => p.fullyIndistinguishable).length}, ` +
+      `some-templates pairs: ${expB.pairs.filter((p) => p.indistinguishableOnSomeTemplates).length}`
+  );
+  console.log(
+    `(Experiment D) MRA floor=${pct(mraCeiling.floor)} fairExpected=${pct(mraCeiling.expectedUnderFairTiebreak)} measured=${pct(mraCeiling.measured)}`
+  );
   for (const s of adaptiveComparison) {
     console.log(
-      `(Phase 4) ${s.strategy}: converged ${s.convergedCount}/${s.n}, mean obs ${s.meanObservationsAmongConverged.toFixed(2)}`
+      `(adaptive selection) ${s.strategy}: converged ${s.convergedCount}/${s.n}, mean obs ${s.meanObservationsAmongConverged.toFixed(2)}`
     );
   }
 }

@@ -147,4 +147,51 @@ describe("diagnose", () => {
   it("throws on an observation referencing an unknown instance id", () => {
     expect(() => diagnose([{ instanceId: "nope", studentAnswer: "10" }], instances, malrules, 0.1)).toThrow();
   });
+
+  it("abstentionThreshold defaults to reproducing the original hardcoded behavior", () => {
+    const withDefault = diagnose(
+      [
+        { instanceId: "i1", studentAnswer: "10" },
+        { instanceId: "i2", studentAnswer: "22" },
+      ],
+      instances,
+      malrules,
+      0.1
+    );
+    const withExplicitOne = diagnose(
+      [
+        { instanceId: "i1", studentAnswer: "10" },
+        { instanceId: "i2", studentAnswer: "22" },
+      ],
+      instances,
+      malrules,
+      0.1,
+      1.0
+    );
+    expect(withExplicitOne.noPatternDetected).toBe(withDefault.noPatternDetected);
+    expect(withExplicitOne.ranked).toEqual(withDefault.ranked);
+  });
+
+  it("raising abstentionThreshold can turn a previously-confident call into an abstention", () => {
+    const obs = [
+      { instanceId: "i1", studentAnswer: "10" },
+      { instanceId: "i2", studentAnswer: "22" },
+    ];
+    const lenient = diagnose(obs, instances, malrules, 0.1, 1.0);
+    expect(lenient.noPatternDetected).toBe(false); // rule_b matches both -- confident at the default
+    const strict = diagnose(obs, instances, malrules, 0.1, 100);
+    expect(strict.noPatternDetected).toBe(true); // same evidence, much higher bar -- now abstains
+    // Threshold never changes the ranking itself, only whether we report abstention.
+    expect(strict.ranked).toEqual(lenient.ranked);
+  });
+
+  it("lowering abstentionThreshold to 0 abstains only when there are zero matches", () => {
+    const obs = [{ instanceId: "i1", studentAnswer: "99" }]; // matches nobody
+    const result = diagnose(obs, instances, malrules, 0.1, 0);
+    expect(result.noPatternDetected).toBe(true);
+  });
+
+  it("rejects a negative abstentionThreshold", () => {
+    expect(() => diagnose([{ instanceId: "i1", studentAnswer: "10" }], instances, malrules, 0.1, -1)).toThrow();
+  });
 });

@@ -26,49 +26,77 @@ inverse problem — "which malrule produced these answers?" — doesn't need to
 be solved by inference. It can be solved by direct execution and matching:
 run every candidate malrule against the observed problems, score each by
 how well it explains the answers under an explicit noise model, and rank
-them. This project exists to test whether that beats the paper's LLM
-baseline with no model in the loop anywhere. See
-[EVALUATION.md](EVALUATION.md) for the numbers, measured honestly — the
-report states plainly where a comparison to the paper is and isn't
-apples-to-apples.
+them. This project exists to test that idea directly, with no model in the
+loop anywhere — see **Key takeaway** below for what actually held up and
+what didn't. See [EVALUATION.md](EVALUATION.md) for the full numbers,
+measured honestly — the report states plainly where a comparison to the
+paper is and isn't apples-to-apples.
 
 ## Key takeaway
 
-The headline number: **92.8% cross-template Malrule Reasoning Accuracy**,
-against the paper's LLM baseline of **40.5%** (answer-only) / **46.5%**
-(with step traces). Full measurement in [EVALUATION.md](EVALUATION.md).
+Two findings matter more than any accuracy percentage here, and they're not
+about the engine's cleverness — they're properties of MalruleLib's own
+procedure library, exposed by running the engine against it exhaustively
+rather than assumed.
 
-But "deterministic beats LLM" isn't really the finding — it's narrower and
-more useful than that. An LLM doing this task has to do two hard,
-*coupled*, probabilistic steps: infer the misconception in words, then
-simulate applying it correctly to a new problem it's never seen. Either
-step can fail, and they can fail independently — correctly describing "this
-kid always borrows from the left" doesn't guarantee correctly simulating
-that procedure on an unfamiliar problem. This engine only ever does the
-first step. Because MalruleLib's malrules are executable code, once the
-right one is identified, "predict the answer" isn't a second inference —
-it's a function call. Identification-correct and prediction-correct
-collapse into the same event, which is exactly why cross-template accuracy
-comes out this high, and exactly why EVALUATION.md is explicit that this
-isn't a fully apples-to-apples win over the paper's number.
+**Most malrules are distinguishable, but not all, and that's a property of
+the library, not the engine.** Checking all 325 possible malrule pairs
+against the entire committed index — not just within-category, and
+confirmed empirically (not assumed) that collisions never cross categories
+— exactly **one pair is fully indistinguishable**:
+`decimals.ignore_decimal_point` and `decimals.whole_number_thinking`. No
+problem in this library, however chosen, can ever tell them apart. 18 more
+pairs collide totally on *some* templates but are fixable by choosing a
+different problem shape — each with a concrete discriminating example in
+[EVALUATION.md](EVALUATION.md) and the machine-readable
+`data/indistinguishability.json`. This would survive a full
+reimplementation of `lib/diagnose`.
 
-The part that generalizes beyond this project: when the hypothesis space is
-a library of *executable procedures* rather than natural-language
-descriptions, the inverse problem — "which procedure produced this
-output?" — is a matching problem, not a reasoning problem.
+**The engine is confidently wrong far too often when the true procedure
+isn't in the library at all.** At its shipped default, leaving one malrule
+out of its own candidate set and generating held-out answers from it, the
+engine misdiagnoses the child as some other, wrong, in-library malrule
+**28% of the time**, rather than reporting that it doesn't recognize the
+pattern (full tradeoff curve and a more conservative recommended operating
+point in [EVALUATION.md](EVALUATION.md)). Real children invent bugs,
+half-transition between strategies, and make problem-specific errors that
+were never in any library. This is the honest number for whether the tool
+is usable outside the closed world it was tested in — not the MRA figure
+below.
 
-Two smaller findings worth keeping in view:
+**On the paper comparison specifically:** this project also measured the
+paper's own task (Malrule Reasoning Accuracy) and got **92.8% cross-template**,
+against the paper's reported LLM baseline of 40.5%/46.5%. **That comparison
+is not apples to apples, and the number should not be read as this engine
+outperforming the LLM baseline.** The paper's task is open-world — an LLM
+must infer an *unseen* procedure and correctly re-execute it. This engine
+selects from a pre-enumerated candidate set (5–8 malrules per category)
+that contains the true answer by construction in every measurement except
+the misattribution finding above. The 92.8% figure is humbling on closer
+inspection, too: roughly a fifth of those trials are genuinely tied between
+two equally-supported malrules, and part of the reported number depends on
+an arbitrary alphabetical tie-break convention rather than additional
+evidence — see EVALUATION.md's ceiling analysis, and §7 for the full
+non-comparability statement.
 
-- The honesty machinery (ties, "no systematic pattern detected", untested
-  malrules) isn't a nice-to-have. The ambiguity analysis in
-  [EVALUATION.md](EVALUATION.md) found 90 malrule pairs that are genuinely
-  indistinguishable on at least one template. A system that always forced a
-  single verdict would be silently wrong on all of them.
-- Adaptive selection's observed ~28% reduction in observations needed
-  (Phase 4 in [EVALUATION.md](EVALUATION.md)) is real but modest, because
-  hypothesis spaces here are small (5–8 malrules per category) — even a
-  random question is often already fairly discriminating. DEBUGGY's 1982
-  idea still works; it just has less room to shine at this library's scale.
+The part that does generalize beyond this project: when the hypothesis
+space is a library of *executable procedures* rather than natural-language
+descriptions, and the true procedure is known to be a member of that
+library, the inverse problem — "which procedure produced this output?" —
+is a matching problem, not a reasoning problem. That precondition is
+load-bearing: **matching beats reasoning only when the true procedure is in
+the library.** Outside that assumption, matching has no mechanism for
+representing "none of the above" except an explicit abstention rule —
+which is precisely why the misattribution experiment above exists, and why
+its 28% number matters as much as the 92.8% one.
+
+This project is best read as an engineering artifact, not a benchmark
+result: a deterministic inverse solver over an open, executable
+misconception library, with adaptive next-problem selection and a working
+interface, which does not appear to exist elsewhere. Whether it is a good
+enough diagnostic tool for real children depends entirely on how often
+their actual errors are already-known procedures — a question this project
+can characterize, but not answer for you.
 
 ## Prior art
 
@@ -126,13 +154,23 @@ lib/diagnose/             Pure TypeScript, no I/O. Given observed
                           (problem, answer) pairs, scores every malrule by
                           how well it explains them under an explicit
                           slip-rate noise model, returning a ranked
-                          posterior — never a single verdict.
+                          posterior — never a single verdict. Abstention
+                          ("no systematic pattern detected") fires via an
+                          explicit, tunable `abstentionThreshold` parameter.
 
 lib/select/                Pure TypeScript, no I/O. Given the current
                           posterior, scores candidate next problems by
                           expected posterior-entropy reduction and picks
                           the one that best discriminates the remaining
                           malrules.
+
+scripts/lib/               Experiment modules for `npm run evaluate`:
+                          leave-one-out misattribution, indistinguishability
+                          characterization (writes
+                          data/indistinguishability.json), chance baselines
+                          and candidate-set scaling, and ceiling/error
+                          decomposition. Each reads only the committed
+                          index, no MalruleLib clone required.
 
 app/                      Next.js App Router UI, statically exported
                           (output: "export"). Reads only the committed
@@ -151,7 +189,7 @@ npm install
 npm run dev        # http://localhost:3000
 npm test           # Vitest — engine unit tests + planted-malrule recovery
 npm run build      # static export, zero env vars required
-npm run evaluate    # regenerates EVALUATION.md from the committed index
+npm run evaluate    # regenerates EVALUATION.md + data/indistinguishability.json
 ```
 
 `data/index/` is precommitted, so none of the above needs MalruleLib itself.

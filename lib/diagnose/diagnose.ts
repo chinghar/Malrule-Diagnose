@@ -15,6 +15,19 @@ import type {
  */
 export const DEFAULT_SLIP_RATE = 0.1;
 
+/**
+ * Multiplier applied to the chance-expected match count when deciding
+ * whether the leading malrule's evidence rises above coincidence. Abstain
+ * ("no systematic pattern detected") when the leader's raw match count does
+ * not exceed `abstentionThreshold * expectedChanceMatches`. 1.0 reproduces
+ * the engine's original, unparameterized behavior (matches must strictly
+ * exceed the chance baseline). Raising it makes abstention more likely
+ * (fewer confident calls, less misattribution risk on out-of-library
+ * procedures); lowering it (toward 0) makes the engine call a malrule on
+ * almost any evidence at all.
+ */
+export const DEFAULT_ABSTENTION_THRESHOLD = 1.0;
+
 interface RawScore {
   malruleId: string;
   matches: number;
@@ -87,15 +100,22 @@ function scoreMalrule(
  * given instance (absent from that instance's `predictions`) is skipped for
  * that observation entirely -- it neither helps nor hurts the malrule's
  * score, matching the index's own "not applicable" semantics.
+ *
+ * `abstentionThreshold` controls only whether `noPatternDetected` fires; it
+ * never changes `ranked` or which malrule leads. See its doc comment above.
  */
 export function diagnose(
   observations: Observation[],
   instances: ProblemInstance[],
   malrules: MalruleMeta[],
-  slipRate: number = DEFAULT_SLIP_RATE
+  slipRate: number = DEFAULT_SLIP_RATE,
+  abstentionThreshold: number = DEFAULT_ABSTENTION_THRESHOLD
 ): DiagnosisResult {
   if (!(slipRate > 0 && slipRate < 1)) {
     throw new Error("slipRate must be strictly between 0 and 1");
+  }
+  if (!(abstentionThreshold >= 0)) {
+    throw new Error("abstentionThreshold must be >= 0");
   }
   if (observations.length === 0) {
     return {
@@ -142,7 +162,7 @@ export function diagnose(
   const tiedTop = ranked.filter((s) => Math.abs(s.logLikelihood - top.logLikelihood) < TIE_EPSILON).map((s) => s.malruleId);
 
   const topRaw = applicableScores.find((s) => s.malruleId === top.malruleId);
-  const noPatternDetected = topRaw ? top.matches <= topRaw.expectedChanceMatches : true;
+  const noPatternDetected = topRaw ? top.matches <= abstentionThreshold * topRaw.expectedChanceMatches : true;
 
   return { ranked, tiedTop, noPatternDetected, untested, slipRate, observedCount: observations.length };
 }
