@@ -1,0 +1,34 @@
+{
+  "categories": {
+    "subtraction": {
+      "malrule_count": 8,
+      "instance_count": 640,
+      "cross_applicability_rate": 0.8366,
+      "file": "subtraction.json",
+      "size_bytes": 348625
+    },
+    "fractions": {
+      "malrule_count": 8,
+      "instance_count": 640,
+      "cross_applicability_rate": 0.1879,
+      "file": "fractions.json",
+      "size_bytes": 272615
+    },
+    "decimals": {
+      "malrule_count": 5,
+      "instance_count": 400,
+      "cross_applicability_rate": 0.5531,
+      "file": "decimals.json",
+      "size_bytes": 157813
+    },
+    "multiplication_division": {
+      "malrule_count": 5,
+      "instance_count": 400,
+      "cross_applicability_rate": 0.65,
+      "file": "multiplication_division.json",
+      "size_bytes": 231028
+    }
+  },
+  "total_malrules": 26,
+  "total_instances": 2080
+}
