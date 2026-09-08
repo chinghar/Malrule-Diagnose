@@ -48,11 +48,12 @@ export interface DiagnosisResult {
   /** Malrule ids whose logLikelihood ties the top score (within floating tolerance). */
   tiedTop: string[];
   /**
-   * True when the leading malrule's match count does not exceed what a
-   * uniform random guess would be expected to hit by coincidence, given the
-   * distinct answers actually on record for the observed instances. When
-   * true, ranked may still be non-empty -- it means nothing in it rises
-   * above chance, not that nothing was computed.
+   * True when the leading malrule's match count does not exceed
+   * `abstentionThreshold` times what a uniform random guess would be
+   * expected to hit by coincidence, given the distinct answers actually on
+   * record for the observed instances. When true, ranked may still be
+   * non-empty -- it means nothing in it rises above chance, not that
+   * nothing was computed.
    */
   noPatternDetected: boolean;
   /** Malrule ids that could not be evaluated on any observed instance. */
