@@ -7,7 +7,7 @@
 
 import { pct } from "./data.mts";
 
-const Z_95 = 1.959963984540054; // two-tailed 95% normal critical value
+export const Z_95 = 1.959963984540054; // two-tailed 95% normal critical value
 
 export interface Interval {
   point: number;
