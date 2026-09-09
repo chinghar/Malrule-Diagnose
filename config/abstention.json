@@ -1,0 +1,200 @@
+{
+  "abstentionThreshold": 3,
+  "seed": "abstention-calib / abstention-heldout (see scripts/lib/abstentionCalibration.mts seed prefixes; fully deterministic, no wall-clock dependency)",
+  "selectionRule": "smallest grid threshold whose calibration-set top-1 precision among non-abstained diagnoses is >= 0.95, ties toward the lower (more permissive) threshold",
+  "precisionTarget": 0.95,
+  "thresholdGrid": [
+    0,
+    0.5,
+    1,
+    1.5,
+    2,
+    3,
+    5,
+    8,
+    12,
+    20
+  ],
+  "referenceObsCount": 5,
+  "trialsPerMalrule": 100,
+  "modelSlipRate": 0.15,
+  "splitDescription": "hashString(instance_id) % 5 !== 0 -> calibration (~80%), === 0 -> held-out (~20%)",
+  "calibrationInstanceCount": 1641,
+  "heldOutInstanceCount": 439,
+  "calibrationSetHash": "94456543fbfc1158e92d8337f6af3c410c22023cdf7a0d6f4bd315e0a5c2f1b2",
+  "heldOutSetHash": "689897bd5ed4aaa87fceaf3e18df6884bbba5105966d9f32ebdf496771a09f5c",
+  "calibrationCurve": [
+    {
+      "threshold": 0,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2406,
+      "abstentionRate": 0,
+      "precision": 0.9253846153846154
+    },
+    {
+      "threshold": 0.5,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2406,
+      "abstentionRate": 0,
+      "precision": 0.9253846153846154
+    },
+    {
+      "threshold": 1,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2406,
+      "abstentionRate": 0,
+      "precision": 0.9253846153846154
+    },
+    {
+      "threshold": 1.5,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2406,
+      "abstentionRate": 0,
+      "precision": 0.9253846153846154
+    },
+    {
+      "threshold": 2,
+      "n": 2600,
+      "abstained": 6,
+      "nonAbstainedCorrect": 2403,
+      "abstentionRate": 0.002307692307692308,
+      "precision": 0.9263685427910563
+    },
+    {
+      "threshold": 3,
+      "n": 2600,
+      "abstained": 840,
+      "nonAbstainedCorrect": 1675,
+      "abstentionRate": 0.3230769230769231,
+      "precision": 0.9517045454545454
+    },
+    {
+      "threshold": 5,
+      "n": 2600,
+      "abstained": 2285,
+      "nonAbstainedCorrect": 314,
+      "abstentionRate": 0.8788461538461538,
+      "precision": 0.9968253968253968
+    },
+    {
+      "threshold": 8,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    },
+    {
+      "threshold": 12,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    },
+    {
+      "threshold": 20,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    }
+  ],
+  "heldOutCurve": [
+    {
+      "threshold": 0,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2459,
+      "abstentionRate": 0,
+      "precision": 0.9457692307692308
+    },
+    {
+      "threshold": 0.5,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2459,
+      "abstentionRate": 0,
+      "precision": 0.9457692307692308
+    },
+    {
+      "threshold": 1,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2459,
+      "abstentionRate": 0,
+      "precision": 0.9457692307692308
+    },
+    {
+      "threshold": 1.5,
+      "n": 2600,
+      "abstained": 0,
+      "nonAbstainedCorrect": 2459,
+      "abstentionRate": 0,
+      "precision": 0.9457692307692308
+    },
+    {
+      "threshold": 2,
+      "n": 2600,
+      "abstained": 4,
+      "nonAbstainedCorrect": 2455,
+      "abstentionRate": 0.0015384615384615385,
+      "precision": 0.9456856702619415
+    },
+    {
+      "threshold": 3,
+      "n": 2600,
+      "abstained": 789,
+      "nonAbstainedCorrect": 1739,
+      "abstentionRate": 0.30346153846153845,
+      "precision": 0.9602429596907786
+    },
+    {
+      "threshold": 5,
+      "n": 2600,
+      "abstained": 2329,
+      "nonAbstainedCorrect": 269,
+      "abstentionRate": 0.8957692307692308,
+      "precision": 0.992619926199262
+    },
+    {
+      "threshold": 8,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    },
+    {
+      "threshold": 12,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    },
+    {
+      "threshold": 20,
+      "n": 2600,
+      "abstained": 2600,
+      "nonAbstainedCorrect": 0,
+      "abstentionRate": 1,
+      "precision": null
+    }
+  ],
+  "heldOutAtChosenThreshold": {
+    "threshold": 3,
+    "n": 2600,
+    "abstained": 789,
+    "nonAbstainedCorrect": 1739,
+    "abstentionRate": 0.30346153846153845,
+    "precision": 0.9602429596907786
+  },
+  "timestampUtc": "2026-09-09T06:38:41.636Z",
+  "selfHash": "143c29a5b1678eff110f0d724c9e17c788c9bb8c0e137700582df5f2035f0064"
+}

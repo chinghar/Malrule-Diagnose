@@ -8,3 +8,38 @@ out/
 # nested .git, so tracking it here would create a dangling gitlink rather
 # than actually versioning its contents.
 vendor/malrulelib/
+
+# --- FoundationalASSIST safety rules (added before any real data exists) ---
+# The dataset is CC-BY-NC-4.0, gated behind an accepted Responsible Use
+# agreement, and the maintainers themselves note manual PII review of 1.7M
+# rows was infeasible -- none of it, or anything derived from it that could
+# reconstitute a record, belongs in this public repo.
+
+# Dedicated location for any downloaded FoundationalASSIST files (see
+# scripts/lib/foundationalAssist/download.mts). Does NOT cover data/index/
+# or data/indistinguishability.json, which are this project's own
+# synthetic, MalruleLib-generated data and remain tracked as before.
+data/foundational-assist/
+
+# CSV/Parquet anywhere else are almost certainly real dataset content (the
+# documented file format) or a derivative of it. Ignored everywhere except
+# the one sanctioned location for hand-built synthetic test fixtures.
+*.csv
+*.parquet
+!test-fixtures/synthetic/**/*.csv
+!test-fixtures/synthetic/**/*.parquet
+
+# Any per-student derived output (e.g. a diagnosis dump keyed by
+# user_xid) reconstitutes individual student records even though it was
+# computed, not copied -- never committed, whatever it ends up being named.
+**/per-student-output/
+
+# Secrets: the HF access token (HF_TOKEN / HUGGING_FACE_HUB_TOKEN) must
+# only ever live in the environment, never in a committed file.
+.env
+.env.*
+
+# HuggingFace's local cache, if ever configured to live inside the repo
+# (HF_HOME) instead of the default ~/.cache/huggingface/.
+.cache/huggingface/
+**/.huggingface/
